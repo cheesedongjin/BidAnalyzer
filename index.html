@@ -10,21 +10,21 @@
             padding: 0;
             box-sizing: border-box;
         }
-
+        
         body {
             font-family: 'Segoe UI', -apple-system, BlinkMacSystemFont, sans-serif;
             background: #f8fafc;
             color: #334155;
             line-height: 1.6;
         }
-
+        
         .header {
             background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
             color: white;
             padding: 20px 0;
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-
+        
         .header-content {
             max-width: 1400px;
             margin: 0 auto;
@@ -33,13 +33,13 @@
             align-items: center;
             justify-content: space-between;
         }
-
+        
         .logo {
             display: flex;
             align-items: center;
             gap: 12px;
         }
-
+        
         .logo-icon {
             width: 40px;
             height: 40px;
@@ -51,13 +51,13 @@
             font-weight: bold;
             font-size: 18px;
         }
-
+        
         .system-title {
             font-size: 24px;
             font-weight: 600;
             margin: 0;
         }
-
+        
         .version {
             background: rgba(59, 130, 246, 0.2);
             color: #93c5fd;
@@ -66,13 +66,13 @@
             font-size: 12px;
             font-weight: 500;
         }
-
+        
         .container {
             max-width: 1400px;
             margin: 0 auto;
             padding: 30px;
         }
-
+        
         .control-panel {
             background: white;
             border-radius: 12px;
@@ -80,37 +80,37 @@
             margin-bottom: 30px;
             overflow: hidden;
         }
-
+        
         .panel-header {
             background: #f1f5f9;
             padding: 20px 30px;
             border-bottom: 1px solid #e2e8f0;
         }
-
+        
         .panel-title {
             font-size: 18px;
             font-weight: 600;
             color: #1e293b;
             margin: 0;
         }
-
+        
         .panel-body {
             padding: 30px;
         }
-
+        
         .input-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
             gap: 30px;
         }
-
+        
         .input-section {
             background: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 8px;
             padding: 24px;
         }
-
+        
         .section-title {
             color: #475569;
             font-size: 14px;
@@ -122,22 +122,22 @@
             align-items: center;
             gap: 8px;
         }
-
+        
         .section-icon {
             width: 16px;
             height: 16px;
             background: #3b82f6;
             border-radius: 3px;
         }
-
+        
         .form-group {
             margin-bottom: 20px;
         }
-
-            .form-group:last-child {
-                margin-bottom: 0;
-            }
-
+        
+        .form-group:last-child {
+            margin-bottom: 0;
+        }
+        
         label {
             display: block;
             color: #374151;
@@ -145,7 +145,7 @@
             margin-bottom: 6px;
             font-size: 13px;
         }
-
+        
         input, select {
             width: 100%;
             padding: 10px 14px;
@@ -155,24 +155,24 @@
             background: white;
             transition: border-color 0.2s, box-shadow 0.2s;
         }
-
-            input:focus, select:focus {
-                outline: none;
-                border-color: #3b82f6;
-                box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-            }
-
+        
+        input:focus, select:focus {
+            outline: none;
+            border-color: #3b82f6;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
         .input-group {
             display: flex;
             gap: 12px;
             align-items: end;
         }
-
-            .input-group .form-group {
-                flex: 1;
-                margin-bottom: 0;
-            }
-
+        
+        .input-group .form-group {
+            flex: 1;
+            margin-bottom: 0;
+        }
+        
         .action-bar {
             display: flex;
             justify-content: space-between;
@@ -181,7 +181,7 @@
             border-top: 1px solid #e2e8f0;
             margin-top: 30px;
         }
-
+        
         .btn {
             padding: 12px 24px;
             border: none;
@@ -194,40 +194,137 @@
             align-items: center;
             gap: 8px;
         }
-
+        
         .btn-primary {
             background: #3b82f6;
             color: white;
         }
-
-            .btn-primary:hover {
-                background: #2563eb;
-                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
-            }
-
+        
+        .btn-primary:hover {
+            background: #2563eb;
+            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+        }
+        
         .btn-secondary {
             background: #6b7280;
             color: white;
         }
-
-            .btn-secondary:hover {
-                background: #4b5563;
-            }
-
+        
+        .btn-secondary:hover {
+            background: #4b5563;
+        }
+        
         .analysis-panel {
             display: none;
             grid-template-columns: 1fr 1fr;
             gap: 30px;
             margin-top: 30px;
         }
-
+        
+        .loading-panel {
+            display: none;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            margin-top: 30px;
+            padding: 60px 30px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .loading-content {
+            position: relative;
+            z-index: 2;
+        }
+        
+        .loading-background {
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, 
+                transparent 0%, 
+                rgba(59, 130, 246, 0.1) 20%, 
+                rgba(99, 102, 241, 0.15) 50%, 
+                rgba(59, 130, 246, 0.1) 80%, 
+                transparent 100%);
+            animation: loadingGradient 3s ease-in-out infinite;
+        }
+        
+        @keyframes loadingGradient {
+            0% { left: -100%; }
+            50% { left: 0%; }
+            100% { left: 100%; }
+        }
+        
+        .loading-title {
+            font-size: 20px;
+            font-weight: 600;
+            color: #1e293b;
+            margin-bottom: 15px;
+        }
+        
+        .loading-subtitle {
+            color: #64748b;
+            font-size: 14px;
+            margin-bottom: 30px;
+        }
+        
+        .loading-progress {
+            width: 300px;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin: 0 auto 20px;
+            overflow: hidden;
+        }
+        
+        .loading-bar {
+            height: 100%;
+            background: linear-gradient(90deg, #3b82f6, #6366f1);
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .loading-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 30px;
+            margin-top: 40px;
+            max-width: 600px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+        
+        .loading-stat {
+            text-align: center;
+        }
+        
+        .loading-stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #3b82f6;
+            display: block;
+        }
+        
+        .loading-stat-label {
+            font-size: 12px;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-top: 8px;
+        }
+        
         .metric-card {
             background: white;
             border-radius: 12px;
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             overflow: hidden;
         }
-
+        
         .card-header {
             background: #1e293b;
             color: white;
@@ -235,11 +332,11 @@
             font-weight: 600;
             font-size: 14px;
         }
-
+        
         .card-body {
             padding: 24px 20px;
         }
-
+        
         .metric-row {
             display: flex;
             justify-content: space-between;
@@ -247,23 +344,23 @@
             padding: 12px 0;
             border-bottom: 1px solid #f1f5f9;
         }
-
-            .metric-row:last-child {
-                border-bottom: none;
-                font-weight: 600;
-                color: #1e293b;
-            }
-
+        
+        .metric-row:last-child {
+            border-bottom: none;
+            font-weight: 600;
+            color: #1e293b;
+        }
+        
         .metric-label {
             color: #64748b;
             font-size: 13px;
         }
-
+        
         .metric-value {
             font-weight: 600;
             color: #1e293b;
         }
-
+        
         .chart-panel {
             grid-column: 1 / -1;
             background: white;
@@ -271,7 +368,7 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.1);
             overflow: hidden;
         }
-
+        
         .chart-header {
             background: #f8fafc;
             padding: 20px;
@@ -280,28 +377,28 @@
             justify-content: space-between;
             align-items: center;
         }
-
+        
         .chart-title {
             font-size: 16px;
             font-weight: 600;
             color: #1e293b;
             margin: 0;
         }
-
+        
         .chart-controls {
             display: flex;
             gap: 10px;
         }
-
+        
         .chart-body {
             padding: 30px;
         }
-
+        
         canvas {
             max-width: 100%;
             height: auto;
         }
-
+        
         .recommendation-panel {
             grid-column: 1 / -1;
             background: white;
@@ -310,14 +407,14 @@
             border-radius: 8px;
             padding: 24px;
         }
-
+        
         .recommendation-header {
             display: flex;
             align-items: center;
             gap: 12px;
             margin-bottom: 16px;
         }
-
+        
         .recommendation-icon {
             width: 24px;
             height: 24px;
@@ -330,19 +427,19 @@
             font-weight: bold;
             font-size: 12px;
         }
-
+        
         .recommendation-title {
             font-size: 16px;
             font-weight: 600;
             color: #1e293b;
             margin: 0;
         }
-
+        
         .recommendation-content {
             color: #475569;
             line-height: 1.7;
         }
-
+        
         .status-bar {
             background: #1e293b;
             color: #94a3b8;
@@ -352,20 +449,20 @@
             justify-content: space-between;
             align-items: center;
         }
-
+        
         .status-item {
             display: flex;
             align-items: center;
             gap: 6px;
         }
-
+        
         .status-indicator {
             width: 8px;
             height: 8px;
             background: #10b981;
             border-radius: 50%;
         }
-
+        
         .warning-panel {
             background: #fef3c7;
             border: 1px solid #fbbf24;
@@ -373,51 +470,51 @@
             padding: 16px;
             margin-top: 30px;
         }
-
+        
         .warning-header {
             display: flex;
             align-items: center;
             gap: 8px;
             margin-bottom: 8px;
         }
-
+        
         .warning-icon {
             color: #f59e0b;
             font-weight: bold;
         }
-
+        
         .warning-title {
             font-weight: 600;
             color: #92400e;
         }
-
+        
         .warning-text {
             color: #92400e;
             font-size: 13px;
             line-height: 1.6;
         }
-
+        
         @media (max-width: 1024px) {
             .input-grid, .analysis-panel {
                 grid-template-columns: 1fr;
             }
-
+            
             .container {
                 padding: 20px;
             }
-
+            
             .header-content {
                 padding: 0 20px;
             }
         }
-
+        
         @media (max-width: 640px) {
             .header-content {
                 flex-direction: column;
                 gap: 15px;
                 text-align: center;
             }
-
+            
             .action-bar {
                 flex-direction: column;
                 gap: 15px;
@@ -467,7 +564,7 @@
                             <input type="number" id="lowerLimit" value="87.745" min="80" max="95" step="0.001">
                         </div>
                     </div>
-
+                    
                     <div class="input-section">
                         <div class="section-title">
                             <div class="section-icon"></div>
@@ -498,7 +595,7 @@
                             </div>
                         </div>
                     </div>
-
+                    
                     <div class="input-section">
                         <div class="section-title">
                             <div class="section-icon"></div>
@@ -519,7 +616,7 @@
                             <input type="number" id="simulationCount" value="10000" min="1000" max="50000" step="1000">
                         </div>
                     </div>
-
+                    
                     <div class="input-section">
                         <div class="section-title">
                             <div class="section-icon"></div>
@@ -551,7 +648,7 @@
                         </div>
                     </div>
                 </div>
-
+                
                 <div class="action-bar">
                     <div class="status-item">
                         <div class="status-indicator"></div>
@@ -568,18 +665,44 @@
                 </div>
             </div>
         </div>
-
+        
+        <div class="loading-panel" id="loadingPanel">
+            <div class="loading-background"></div>
+            <div class="loading-content">
+                <div class="loading-title">Monte Carlo 시뮬레이션 실행 중</div>
+                <div class="loading-subtitle">확률론적 모델링을 통한 최적 투찰 전략을 계산하고 있습니다...</div>
+                
+                <div class="loading-progress">
+                    <div class="loading-bar" id="loadingBar"></div>
+                </div>
+                
+                <div class="loading-stats">
+                    <div class="loading-stat">
+                        <span class="loading-stat-value" id="iterationCount">0</span>
+                        <div class="loading-stat-label">Iterations</div>
+                    </div>
+                    <div class="loading-stat">
+                        <span class="loading-stat-value" id="processedScenarios">0</span>
+                        <div class="loading-stat-label">Scenarios</div>
+                    </div>
+                    <div class="loading-stat">
+                        <span class="loading-stat-value" id="currentStage">초기화</span>
+                        <div class="loading-stat-label">Current Stage</div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div class="analysis-panel" id="analysisPanel">
             <div class="metric-card">
                 <div class="card-header">최적화 결과</div>
                 <div class="card-body" id="optimizationResults"></div>
             </div>
-
+            
             <div class="metric-card">
                 <div class="card-header">통계 분석</div>
                 <div class="card-body" id="statisticalAnalysis"></div>
             </div>
-
+            
             <div class="chart-panel">
                 <div class="chart-header">
                     <h3 class="chart-title">투찰률별 낙찰 확률 분포</h3>
@@ -594,7 +717,7 @@
                     <canvas id="analysisChart" width="1000" height="400"></canvas>
                 </div>
             </div>
-
+            
             <div class="recommendation-panel" id="recommendationPanel">
                 <div class="recommendation-header">
                     <div class="recommendation-icon">✓</div>
@@ -603,19 +726,19 @@
                 <div class="recommendation-content" id="strategicRecommendation"></div>
             </div>
         </div>
-
+        
         <div class="warning-panel">
             <div class="warning-header">
                 <span class="warning-icon">⚠</span>
                 <span class="warning-title">중요 고지사항</span>
             </div>
             <div class="warning-text">
-                본 시스템은 확률론적 모델링을 통한 의사결정 지원도구입니다. 실제 입찰환경에서는 예측하지 못한 변수들이 존재할 수 있으므로,
+                본 시스템은 확률론적 모델링을 통한 의사결정 지원도구입니다. 실제 입찰환경에서는 예측하지 못한 변수들이 존재할 수 있으므로, 
                 분석 결과는 전략 수립의 참고자료로만 활용하시고 최종 투찰 결정은 종합적 판단을 통해 이루어져야 합니다.
             </div>
         </div>
     </div>
-
+    
     <div class="status-bar">
         <div class="status-item">
             <div class="status-indicator"></div>
@@ -634,15 +757,69 @@
         let currentChart = null;
 
         function executeSimulation() {
+            // 로딩 패널 표시 및 결과 패널 숨기기
+            document.getElementById('loadingPanel').style.display = 'block';
+            document.getElementById('analysisPanel').style.display = 'none';
+            
+            // 매개변수 수집
             const params = collectParameters();
-            const results = performMonteCarloAnalysis(params);
-            simulationData = results;
-
-            displayAnalysisResults(results);
-            renderChart(results);
-            generateStrategicRecommendation(results, params);
-
-            document.getElementById('analysisPanel').style.display = 'grid';
+            
+            // 진행 상황 추적을 위한 변수들
+            let currentProgress = 0;
+            let currentIteration = 0;
+            let currentScenarios = 0;
+            
+            // 로딩 상태 업데이트 함수
+            const updateLoadingStatus = (stage, progress, iteration, scenarios) => {
+                document.getElementById('currentStage').textContent = stage;
+                document.getElementById('loadingBar').style.width = progress + '%';
+                document.getElementById('iterationCount').textContent = iteration.toLocaleString();
+                document.getElementById('processedScenarios').textContent = scenarios.toLocaleString();
+            };
+            
+            // 시뮬레이션을 비동기적으로 실행
+            setTimeout(() => {
+                updateLoadingStatus('매개변수 검증', 10, 0, 0);
+                
+                setTimeout(() => {
+                    updateLoadingStatus('베이스 시나리오 생성', 25, 0, 0);
+                    
+                    setTimeout(() => {
+                        updateLoadingStatus('Monte Carlo 엔진 초기화', 40, 0, 0);
+                        
+                        setTimeout(() => {
+                            updateLoadingStatus('확률 분포 계산', 60, params.simulationCount * 0.3, params.simulationCount * 30);
+                            
+                            setTimeout(() => {
+                                updateLoadingStatus('최적화 알고리즘 실행', 80, params.simulationCount * 0.7, params.simulationCount * 70);
+                                
+                                setTimeout(() => {
+                                    updateLoadingStatus('결과 분석', 95, params.simulationCount, params.simulationCount * 100);
+                                    
+                                    // 실제 시뮬레이션 실행
+                                    const results = performMonteCarloAnalysis(params);
+                                    simulationData = results;
+                                    
+                                    setTimeout(() => {
+                                        updateLoadingStatus('완료', 100, params.simulationCount, params.simulationCount * 100);
+                                        
+                                        setTimeout(() => {
+                                            // 로딩 패널 숨기고 결과 표시
+                                            document.getElementById('loadingPanel').style.display = 'none';
+                                            
+                                            displayAnalysisResults(results);
+                                            renderChart(results);
+                                            generateStrategicRecommendation(results, params);
+                                            
+                                            document.getElementById('analysisPanel').style.display = 'grid';
+                                        }, 300);
+                                    }, 200);
+                                }, 400);
+                            }, 500);
+                        }, 400);
+                    }, 300);
+                }, 200);
+            }, 100);
         }
 
         function collectParameters() {
@@ -670,48 +847,48 @@
             }
 
             const adjustedBidRate = params.avgBidRate * params.agencyWeight * params.seasonAdjust * marketMultiplier;
-
+            
             const bidRateRange = [];
             const probabilityDistribution = [];
             const cumulativeProbability = [];
-
+            
             let maxProbability = 0;
             let optimalBidRate = 0;
             let totalWinScenarios = 0;
 
             for (let rate = params.lowerLimit; rate <= 94; rate += 0.03) {
                 bidRateRange.push(rate);
-
+                
                 let winCount = 0;
-
+                
                 for (let iteration = 0; iteration < params.simulationCount; iteration++) {
                     const basePriceSet = generateBasePrices(params.priceCount, params.estimatedPrice);
                     const selectedPrices = randomSample(basePriceSet, params.drawCount);
                     const finalEstimatedPrice = calculateMean(selectedPrices);
-
+                    
                     const actualMinBid = finalEstimatedPrice * (params.lowerLimit / 100);
                     const myBidAmount = finalEstimatedPrice * (rate / 100);
-
+                    
                     if (myBidAmount < actualMinBid) continue;
-
+                    
                     let isWinning = true;
                     for (let competitor = 0; competitor < params.competitorCount - 1; competitor++) {
                         const competitorRate = generateNormalRandom(adjustedBidRate, params.bidStdDev);
                         const competitorBid = finalEstimatedPrice * (competitorRate / 100);
-
+                        
                         if (competitorBid >= actualMinBid && competitorBid < myBidAmount) {
                             isWinning = false;
                             break;
                         }
                     }
-
+                    
                     if (isWinning) winCount++;
                 }
 
                 const probability = (winCount / params.simulationCount) * 100;
                 probabilityDistribution.push(probability);
                 totalWinScenarios += winCount;
-
+                
                 if (probability > maxProbability) {
                     maxProbability = probability;
                     optimalBidRate = rate;
@@ -813,17 +990,17 @@
         function renderChart(results) {
             const canvas = document.getElementById('analysisChart');
             const ctx = canvas.getContext('2d');
-
+            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+            
             const margin = { top: 40, right: 80, bottom: 80, left: 80 };
             const chartWidth = canvas.width - margin.left - margin.right;
             const chartHeight = canvas.height - margin.top - margin.bottom;
-
+            
             // 배경 그리드
             ctx.strokeStyle = '#f1f5f9';
             ctx.lineWidth = 1;
-
+            
             // 수직 그리드
             for (let i = 0; i <= 10; i++) {
                 const x = margin.left + (chartWidth * i) / 10;
@@ -832,7 +1009,7 @@
                 ctx.lineTo(x, margin.top + chartHeight);
                 ctx.stroke();
             }
-
+            
             // 수평 그리드
             for (let i = 0; i <= 8; i++) {
                 const y = margin.top + (chartHeight * i) / 8;
@@ -841,7 +1018,7 @@
                 ctx.lineTo(margin.left + chartWidth, y);
                 ctx.stroke();
             }
-
+            
             // 축 그리기
             ctx.strokeStyle = '#374151';
             ctx.lineWidth = 2;
@@ -850,21 +1027,21 @@
             ctx.lineTo(margin.left, margin.top + chartHeight);
             ctx.lineTo(margin.left + chartWidth, margin.top + chartHeight);
             ctx.stroke();
-
+            
             // 데이터 범위
             const minRate = Math.min(...results.bidRates);
             const maxRate = Math.max(...results.bidRates);
             const maxProb = Math.max(...results.probabilities);
-
+            
             // 데이터 라인 그리기
             ctx.strokeStyle = '#3b82f6';
             ctx.lineWidth = 3;
             ctx.beginPath();
-
+            
             results.bidRates.forEach((rate, idx) => {
                 const x = margin.left + ((rate - minRate) / (maxRate - minRate)) * chartWidth;
                 const y = margin.top + chartHeight - (results.probabilities[idx] / maxProb) * chartHeight;
-
+                
                 if (idx === 0) {
                     ctx.moveTo(x, y);
                 } else {
@@ -872,18 +1049,18 @@
                 }
             });
             ctx.stroke();
-
+            
             // 최적점 표시
             const optimalIndex = results.probabilities.indexOf(results.maxProbability);
             if (optimalIndex >= 0) {
                 const optimalX = margin.left + ((results.bidRates[optimalIndex] - minRate) / (maxRate - minRate)) * chartWidth;
                 const optimalY = margin.top + chartHeight - (results.maxProbability / maxProb) * chartHeight;
-
+                
                 ctx.fillStyle = '#ef4444';
                 ctx.beginPath();
                 ctx.arc(optimalX, optimalY, 6, 0, 2 * Math.PI);
                 ctx.fill();
-
+                
                 // 최적점 레이블
                 ctx.fillStyle = '#1f2937';
                 ctx.font = '12px sans-serif';
@@ -891,18 +1068,18 @@
                 ctx.fillText(`${results.bidRates[optimalIndex].toFixed(2)}%`, optimalX, optimalY - 15);
                 ctx.fillText(`${results.maxProbability.toFixed(1)}%`, optimalX, optimalY - 30);
             }
-
+            
             // X축 라벨
             ctx.fillStyle = '#6b7280';
             ctx.font = '11px sans-serif';
             ctx.textAlign = 'center';
-
+            
             for (let i = 0; i <= 10; i++) {
                 const rate = minRate + (maxRate - minRate) * i / 10;
                 const x = margin.left + chartWidth * i / 10;
                 ctx.fillText(rate.toFixed(1) + '%', x, margin.top + chartHeight + 25);
             }
-
+            
             // Y축 라벨
             ctx.textAlign = 'right';
             for (let i = 0; i <= 8; i++) {
@@ -910,39 +1087,39 @@
                 const y = margin.top + chartHeight - chartHeight * i / 8;
                 ctx.fillText(prob.toFixed(1) + '%', margin.left - 15, y + 4);
             }
-
+            
             // 축 제목
             ctx.fillStyle = '#374151';
             ctx.font = '14px sans-serif';
             ctx.textAlign = 'center';
             ctx.fillText('투찰률 (%)', margin.left + chartWidth / 2, canvas.height - 20);
-
+            
             ctx.save();
             ctx.translate(25, margin.top + chartHeight / 2);
             ctx.rotate(-Math.PI / 2);
             ctx.fillText('낙찰 확률 (%)', 0, 0);
             ctx.restore();
-
+            
             currentChart = 'probability';
         }
 
         function updateChart() {
             if (!simulationData) return;
-
+            
             const chartType = document.getElementById('chartType').value;
             const canvas = document.getElementById('analysisChart');
             const ctx = canvas.getContext('2d');
-
+            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
-
+            
             const margin = { top: 40, right: 80, bottom: 80, left: 80 };
             const chartWidth = canvas.width - margin.left - margin.right;
             const chartHeight = canvas.height - margin.top - margin.bottom;
-
+            
             // 배경 그리드
             ctx.strokeStyle = '#f1f5f9';
             ctx.lineWidth = 1;
-
+            
             for (let i = 0; i <= 10; i++) {
                 const x = margin.left + (chartWidth * i) / 10;
                 ctx.beginPath();
@@ -950,7 +1127,7 @@
                 ctx.lineTo(x, margin.top + chartHeight);
                 ctx.stroke();
             }
-
+            
             for (let i = 0; i <= 8; i++) {
                 const y = margin.top + (chartHeight * i) / 8;
                 ctx.beginPath();
@@ -958,7 +1135,7 @@
                 ctx.lineTo(margin.left + chartWidth, y);
                 ctx.stroke();
             }
-
+            
             // 축 그리기
             ctx.strokeStyle = '#374151';
             ctx.lineWidth = 2;
@@ -967,12 +1144,12 @@
             ctx.lineTo(margin.left, margin.top + chartHeight);
             ctx.lineTo(margin.left + chartWidth, margin.top + chartHeight);
             ctx.stroke();
-
+            
             const minRate = Math.min(...simulationData.bidRates);
             const maxRate = Math.max(...simulationData.bidRates);
-
+            
             let dataArray, maxValue, color;
-
+            
             if (chartType === 'cumulative') {
                 dataArray = simulationData.cumulativeProbabilities;
                 maxValue = Math.max(...dataArray);
@@ -982,16 +1159,16 @@
                 maxValue = Math.max(...dataArray);
                 color = '#3b82f6';
             }
-
+            
             // 데이터 라인 그리기
             ctx.strokeStyle = color;
             ctx.lineWidth = 3;
             ctx.beginPath();
-
+            
             simulationData.bidRates.forEach((rate, idx) => {
                 const x = margin.left + ((rate - minRate) / (maxRate - minRate)) * chartWidth;
                 const y = margin.top + chartHeight - (dataArray[idx] / maxValue) * chartHeight;
-
+                
                 if (idx === 0) {
                     ctx.moveTo(x, y);
                 } else {
@@ -999,18 +1176,18 @@
                 }
             });
             ctx.stroke();
-
+            
             // 라벨링
             ctx.fillStyle = '#6b7280';
             ctx.font = '11px sans-serif';
             ctx.textAlign = 'center';
-
+            
             for (let i = 0; i <= 10; i++) {
                 const rate = minRate + (maxRate - minRate) * i / 10;
                 const x = margin.left + chartWidth * i / 10;
                 ctx.fillText(rate.toFixed(1) + '%', x, margin.top + chartHeight + 25);
             }
-
+            
             ctx.textAlign = 'right';
             for (let i = 0; i <= 8; i++) {
                 const value = maxValue * i / 8;
@@ -1023,7 +1200,7 @@
             let recommendation = '';
             let riskLevel = '';
             let strategy = '';
-
+            
             if (results.maxProbability > 30) {
                 riskLevel = '낮음';
                 strategy = '적극적 입찰 권장';
@@ -1041,15 +1218,15 @@
                 strategy = '참여 재검토 권장';
                 recommendation = `극도로 치열한 경쟁이 예상됩니다. 현재 조건에서는 수주 확률이 <strong>${results.maxProbability.toFixed(1)}%</strong>로 매우 낮아 참여 타당성을 재검토해야 합니다.`;
             }
-
+            
             const lowerBound = results.optimalRate - 0.05;
             const upperBound = results.optimalRate + 0.05;
-
+            
             recommendation += `<br><br><strong>전술적 제안:</strong><br>`;
             recommendation += `• 핵심 투찰 구간: ${lowerBound.toFixed(3)}% ~ ${upperBound.toFixed(3)}%<br>`;
             recommendation += `• 위험도: ${riskLevel} | 권장 전략: ${strategy}<br>`;
             recommendation += `• 하한율 마진: +${(results.optimalRate - params.lowerLimit).toFixed(3)}%p`;
-
+            
             document.getElementById('strategicRecommendation').innerHTML = recommendation;
         }
 
@@ -1069,12 +1246,13 @@
                 'marketCondition': 'normal',
                 'riskTolerance': 'moderate'
             };
-
+            
             Object.keys(inputs).forEach(id => {
                 document.getElementById(id).value = inputs[id];
             });
-
+            
             document.getElementById('analysisPanel').style.display = 'none';
+            document.getElementById('loadingPanel').style.display = 'none';
             simulationData = null;
         }
 
