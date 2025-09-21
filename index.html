@@ -236,12 +236,24 @@
             background: #4b5563;
         }
         
-        .loading-panel {
+        .loading-overlay {
             display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.55);
+            backdrop-filter: blur(2px);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .loading-panel {
             background: white;
-            border-radius: 12px;
-            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-            margin-top: 30px;
+            border-radius: 16px;
+            box-shadow: 0 20px 40px rgba(15, 23, 42, 0.2);
+            width: 100%;
+            max-width: 520px;
             padding: 60px 30px;
             text-align: center;
             position: relative;
@@ -288,7 +300,8 @@
         }
         
         .loading-progress {
-            width: 300px;
+            width: 100%;
+            max-width: 320px;
             height: 4px;
             background: #e2e8f0;
             border-radius: 2px;
@@ -933,7 +946,7 @@
         }
 
         function executeAdvancedSimulation() {
-            document.getElementById('loadingPanel').style.display = 'block';
+            document.getElementById('loadingPanel').style.display = 'flex';
             document.getElementById('analysisPanel').style.display = 'none';
             
             const params = collectAdvancedParameters();
@@ -1919,28 +1932,30 @@
     </script>
     
     <!-- 여기서 바로 로딩 패널이 와야 함 -->
-    <div class="loading-panel" id="loadingPanel">
-        <div class="loading-background"></div>
-        <div class="loading-content">
-            <div class="loading-title">고급 확률론적 시뮬레이션 실행 중</div>
-            <div class="loading-subtitle">다차원 분포 모델링 및 기계학습 기반 최적화를 수행하고 있습니다...</div>
-            
-            <div class="loading-progress">
-                <div class="loading-bar" id="loadingBar"></div>
-            </div>
-            
-            <div class="loading-stats">
-                <div class="loading-stat">
-                    <span class="loading-stat-value" id="iterationCount">0</span>
-                    <div class="loading-stat-label">Iterations</div>
+    <div class="loading-overlay" id="loadingPanel">
+        <div class="loading-panel">
+            <div class="loading-background"></div>
+            <div class="loading-content">
+                <div class="loading-title">고급 확률론적 시뮬레이션 실행 중</div>
+                <div class="loading-subtitle">다차원 분포 모델링 및 기계학습 기반 최적화를 수행하고 있습니다...</div>
+
+                <div class="loading-progress">
+                    <div class="loading-bar" id="loadingBar"></div>
                 </div>
-                <div class="loading-stat">
-                    <span class="loading-stat-value" id="processedScenarios">0</span>
-                    <div class="loading-stat-label">Scenarios</div>
-                </div>
-                <div class="loading-stat">
-                    <span class="loading-stat-value" id="currentStage">초기화</span>
-                    <div class="loading-stat-label">Current Stage</div>
+
+                <div class="loading-stats">
+                    <div class="loading-stat">
+                        <span class="loading-stat-value" id="iterationCount">0</span>
+                        <div class="loading-stat-label">Iterations</div>
+                    </div>
+                    <div class="loading-stat">
+                        <span class="loading-stat-value" id="processedScenarios">0</span>
+                        <div class="loading-stat-label">Scenarios</div>
+                    </div>
+                    <div class="loading-stat">
+                        <span class="loading-stat-value" id="currentStage">초기화</span>
+                        <div class="loading-stat-label">Current Stage</div>
+                    </div>
                 </div>
             </div>
         </div>
