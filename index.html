@@ -1041,133 +1041,111 @@
         }
 
         function performAdvancedMonteCarloAnalysis(params) {
-            // 고급 분포 모델링
             const distributionGenerator = createDistributionGenerator(params);
-            
-            // 상관관계 매트릭스 생성
             const correlationMatrix = generateCorrelationMatrix(params.competitorCount, params.correlationCoeff, params.marketCluster);
             competitorCorrelations = correlationMatrix;
-            
+
             const bidRateRange = [];
             const probabilityDistribution = [];
             const confidenceIntervals = [];
             const riskMetrics = [];
-            const competitorAnalysis = [];
-            
-            let maxProbability = 0;
-            let optimalBidRate = 0;
-            let sharpeOptimalRate = 0;
-            let maxSharpeRatio = -Infinity;
 
-            // 정밀한 분석을 위한 적응적 그리드
             const baseStep = params.analysisResolution;
-            for (let rate = params.lowerLimit; rate <= 94; rate += baseStep) {
-                bidRateRange.push(rate);
+            for (let rate = params.lowerLimit; rate <= 94 + baseStep / 2; rate += baseStep) {
+                const normalizedRate = Math.round(rate * 1000000) / 1000000;
+                if (bidRateRange.length === 0 || normalizedRate > bidRateRange[bidRateRange.length - 1]) {
+                    bidRateRange.push(normalizedRate);
+                }
             }
 
-            // Bootstrap을 통한 신뢰구간 추정
-            for (let rateIdx = 0; rateIdx < bidRateRange.length; rateIdx++) {
-                const rate = bidRateRange[rateIdx];
-                const bootstrapResults = [];
-                
-                for (let bootstrap = 0; bootstrap < params.bootstrapSamples; bootstrap++) {
-                    let winCount = 0;
-                    
-                    for (let iteration = 0; iteration < Math.floor(params.simulationCount / params.bootstrapSamples); iteration++) {
-                        // 복수예비가격 생성 (정교한 모델링)
-                        const basePriceSet = generateAdvancedBasePrices(params);
-                        const selectedPrices = randomSample(basePriceSet, params.drawCount);
-                        const finalEstimatedPrice = calculateMean(selectedPrices);
-                        
-                        // 예정가격 변동 범위 적용
-                        const priceRange = finalEstimatedPrice * (params.priceVariance / 100);
-                        const adjustedPrice = finalEstimatedPrice + (Math.random() - 0.5) * 2 * priceRange;
-                        
-                        const actualMinBid = adjustedPrice * (params.lowerLimit / 100);
-                        const myBidAmount = adjustedPrice * (rate / 100);
-                        
-                        if (myBidAmount < actualMinBid) continue;
-                        
-                        // 상관관계를 고려한 경쟁사 투찰률 생성
-                        const competitorRates = generateCorrelatedBidRates(params, correlationMatrix, distributionGenerator);
-                        
-                        let isWinning = true;
-                        for (let c = 0; c < competitorRates.length; c++) {
-                            const competitorBid = adjustedPrice * (competitorRates[c] / 100);
-                            
-                            if (competitorBid >= actualMinBid && competitorBid < myBidAmount) {
-                                isWinning = false;
-                                break;
-                            }
-                        }
-                        
-                        if (isWinning) winCount++;
+            const totalRates = bidRateRange.length;
+            const totalSimulations = Math.max(1, params.simulationCount);
+            const winDiff = new Array(totalRates + 1).fill(0);
+            const competitorDiffs = Array.from({ length: params.competitorCount - 1 }, () => new Array(totalRates + 1).fill(0));
+
+            for (let iteration = 0; iteration < totalSimulations; iteration++) {
+                const competitorRates = generateCorrelatedBidRates(params, correlationMatrix, distributionGenerator);
+
+                let winningRate = Infinity;
+                let winningIndex = -1;
+
+                for (let c = 0; c < competitorRates.length; c++) {
+                    const rate = competitorRates[c];
+                    if (rate >= params.lowerLimit && rate < winningRate) {
+                        winningRate = rate;
+                        winningIndex = c;
                     }
-                    
-                    const bootstrapProb = (winCount / Math.floor(params.simulationCount / params.bootstrapSamples)) * 100;
-                    bootstrapResults.push(bootstrapProb);
                 }
-                
-                // 통계 계산
-                bootstrapResults.sort((a, b) => a - b);
-                const meanProb = calculateMean(bootstrapResults);
-                const lowerCI = bootstrapResults[Math.floor(bootstrapResults.length * 0.025)];
-                const upperCI = bootstrapResults[Math.floor(bootstrapResults.length * 0.975)];
-                
+
+                const thresholdIndex = winningRate === Infinity ? totalRates - 1 : findUpperBound(bidRateRange, winningRate);
+
+                if (thresholdIndex >= 0) {
+                    winDiff[0] += 1;
+                    winDiff[Math.min(totalRates, thresholdIndex + 1)] -= 1;
+                }
+
+                if (winningIndex >= 0) {
+                    const lossStart = Math.max(0, Math.min(totalRates, thresholdIndex + 1));
+                    if (lossStart < totalRates) {
+                        const compDiff = competitorDiffs[winningIndex];
+                        compDiff[lossStart] += 1;
+                        compDiff[totalRates] -= 1;
+                    }
+                }
+            }
+
+            let runningWin = 0;
+            let maxProbability = 0;
+            let optimalBidRate = bidRateRange[0] || params.lowerLimit;
+            let maxSharpeRatio = -Infinity;
+            let sharpeOptimalRate = bidRateRange[0] || params.lowerLimit;
+
+            for (let i = 0; i < totalRates; i++) {
+                runningWin += winDiff[i];
+                const rate = bidRateRange[i];
+                const probability = runningWin / totalSimulations;
+                const meanProb = probability * 100;
+                const stdError = Math.sqrt(Math.max(probability * (1 - probability), 0) / totalSimulations);
+                const lowerCI = Math.max(0, (probability - 1.96 * stdError) * 100);
+                const upperCI = Math.min(100, (probability + 1.96 * stdError) * 100);
+
                 probabilityDistribution.push(meanProb);
                 confidenceIntervals.push({ lower: lowerCI, upper: upperCI, mean: meanProb });
-                
-                // 리스크-수익 분석
-                const expectedReturn = meanProb * (100 - rate) / 100; // 수익률 근사
+
+                const expectedReturn = probability * (100 - rate);
                 const riskAdjustedReturn = calculateRiskAdjustedReturn(meanProb, rate, params.riskRewardModel);
-                const volatility = Math.sqrt(bootstrapResults.reduce((sum, x) => sum + Math.pow(x - meanProb, 2), 0) / bootstrapResults.length);
-                const sharpeRatio = volatility > 0 ? (expectedReturn - 2) / volatility : 0; // 무위험수익률 2% 가정
-                
+                const volatility = stdError * 100;
+                const sharpeRatio = volatility > 0 ? (expectedReturn - 2) / volatility : 0;
+
                 riskMetrics.push({
                     expectedReturn,
                     riskAdjustedReturn,
                     volatility,
                     sharpeRatio,
                     varAtRisk: lowerCI,
-                    cvar: bootstrapResults.slice(0, Math.floor(bootstrapResults.length * 0.05)).reduce((a, b) => a + b, 0) / Math.floor(bootstrapResults.length * 0.05)
+                    cvar: calculateConditionalTailRisk(probability, stdError)
                 });
-                
+
                 if (meanProb > maxProbability) {
                     maxProbability = meanProb;
                     optimalBidRate = rate;
                 }
-                
+
                 if (sharpeRatio > maxSharpeRatio) {
                     maxSharpeRatio = sharpeRatio;
                     sharpeOptimalRate = rate;
                 }
             }
 
-            // 경쟁사 개별 분석
-            for (let comp = 0; comp < params.competitorCount - 1; comp++) {
+            const competitorAnalysis = competitorDiffs.map(diff => {
                 const competitorProbs = [];
-                for (let rateIdx = 0; rateIdx < bidRateRange.length; rateIdx++) {
-                    // 해당 경쟁사가 낙찰할 확률 계산
-                    let compWinCount = 0;
-                    for (let iter = 0; iter < 5000; iter++) {
-                        const basePriceSet = generateAdvancedBasePrices(params);
-                        const selectedPrices = randomSample(basePriceSet, params.drawCount);
-                        const finalPrice = calculateMean(selectedPrices);
-                        
-                        const allRates = generateCorrelatedBidRates(params, correlationMatrix, distributionGenerator);
-                        allRates.push(bidRateRange[rateIdx]); // 우리 투찰률 추가
-                        
-                        const minValidRate = Math.max(...allRates.filter((r, idx) => {
-                            const bid = finalPrice * (r / 100);
-                            return bid >= finalPrice * (params.lowerLimit / 100);
-                        }));
-                        
-                        if (allRates[comp] === minValidRate) compWinCount++;
-                    }
-                    competitorProbs.push((compWinCount / 5000) * 100);
+                let running = 0;
+                for (let i = 0; i < totalRates; i++) {
+                    running += diff[i];
+                    competitorProbs.push((running / totalSimulations) * 100);
                 }
-                competitorAnalysis.push(competitorProbs);
-            }
+                return competitorProbs;
+            });
 
             return {
                 bidRates: bidRateRange,
@@ -1182,7 +1160,7 @@
                 maxSharpeRatio: maxSharpeRatio,
                 avgProbability: probabilityDistribution.reduce((a, b) => a + b, 0) / probabilityDistribution.length,
                 distributionModel: params.distributionModel,
-                totalScenarios: params.simulationCount * params.bootstrapSamples
+                totalScenarios: totalSimulations
             };
         }
 
@@ -1342,6 +1320,38 @@
 
         function calculateMean(array) {
             return array.reduce((a, b) => a + b, 0) / array.length;
+        }
+
+        function findUpperBound(array, target) {
+            let low = 0;
+            let high = array.length - 1;
+            let result = -1;
+            const epsilon = 1e-9;
+
+            while (low <= high) {
+                const mid = Math.floor((low + high) / 2);
+                if (array[mid] <= target + epsilon) {
+                    result = mid;
+                    low = mid + 1;
+                } else {
+                    high = mid - 1;
+                }
+            }
+
+            return result;
+        }
+
+        function calculateConditionalTailRisk(probability, stdError) {
+            if (stdError === 0) {
+                return probability * 100;
+            }
+
+            const z = -1.6448536269514729; // 5% 하위 구간
+            const tailProbability = 0.05;
+            const pdf = Math.exp(-0.5 * z * z) / Math.sqrt(2 * Math.PI);
+            const tailMean = probability - (stdError * pdf / tailProbability);
+
+            return Math.min(100, Math.max(0, tailMean * 100));
         }
 
         function displayAdvancedResults(results) {
