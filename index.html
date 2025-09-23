@@ -76,7 +76,8 @@
             color: #334155;
         }
 
-        .field input {
+        .field input,
+        .field textarea {
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 12px 14px;
@@ -84,10 +85,21 @@
             transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
 
-        .field input:focus {
+        .field textarea {
+            resize: vertical;
+            min-height: 96px;
+        }
+
+        .field input:focus,
+        .field textarea:focus {
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
             outline: none;
+        }
+
+        .field .field-hint {
+            color: var(--subtle-text);
+            font-size: 13px;
         }
 
         .action-row {
@@ -301,20 +313,13 @@
 
         <form id="simulationForm" class="card input-card">
             <div class="field">
-                <label for="estimatedPrice">추정가격 (억원)</label>
-                <input type="number" id="estimatedPrice" name="estimatedPrice" min="1" step="0.1" value="100">
+                <label for="openPrice">공개가격 (억원)</label>
+                <input type="number" id="openPrice" name="openPrice" min="1" step="0.1" value="100">
             </div>
             <div class="field">
-                <label for="lowerLimit">낙찰하한율 (%)</label>
-                <input type="number" id="lowerLimit" name="lowerLimit" min="80" max="95" step="0.01" value="87.70">
-            </div>
-            <div class="field">
-                <label for="avgBidRate">경쟁사 평균 투찰률 (%)</label>
-                <input type="number" id="avgBidRate" name="avgBidRate" min="80" max="99" step="0.05" value="88.50">
-            </div>
-            <div class="field">
-                <label for="competitorCount">참여업체 수</label>
-                <input type="number" id="competitorCount" name="competitorCount" min="2" max="30" step="1" value="8">
+                <label for="bidRates">참여업체 투찰률 목록 (%)</label>
+                <textarea id="bidRates" name="bidRates" rows="3" placeholder="예: 86.40, 86.70, 87.10, 87.25, 87.40">86.40, 86.70, 87.10, 87.25, 87.40, 87.55, 87.70, 87.85</textarea>
+                <small class="field-hint">콤마(,)나 줄바꿈으로 구분해 투찰률을 입력하면 됩니다.</small>
             </div>
             <div class="action-row">
                 <button type="submit" class="btn btn-primary">분석 실행</button>
@@ -324,8 +329,8 @@
 
         <div id="loadingIndicator" class="card loading-card" hidden>
             <div class="spinner" aria-hidden="true"></div>
-            <p>빠른 시뮬레이션을 수행 중입니다...</p>
-            <small>대략 1초 내에 결과가 준비됩니다.</small>
+            <p>확률 분포를 계산하는 중입니다...</p>
+            <small>잠시만 기다려 주세요.</small>
         </div>
 
         <section id="resultSection" class="card result-card" hidden aria-live="polite">
@@ -349,21 +354,21 @@
         </section>
 
         <footer class="app-footer">
-            ※ 본 계산기는 참고용 시뮬레이션 결과를 제공합니다. 실제 투찰 전 추가 검토가 필요합니다.
+            ※ 본 계산기는 참고용 이론적 확률 계산 결과를 제공합니다. 실제 투찰 전 추가 검토가 필요합니다.
         </footer>
     </div>
 
     <script>
         (() => {
             const DEFAULTS = {
-                estimatedPrice: 100,
-                lowerLimit: 87.7,
-                avgBidRate: 88.5,
-                competitorCount: 8
+                openPrice: 100,
+                bidRates: '86.40, 86.70, 87.10, 87.25, 87.40, 87.55, 87.70, 87.85'
             };
 
-            const ITERATIONS = 12000;
-            const RATE_STEP = 0.1;
+            const BASE_RATE = 0.79995;
+            const RANGE_RATIO = 0.02;
+            const SAMPLE_SIZE = 15;
+            const PICK_SIZE = 4;
 
             const form = document.getElementById('simulationForm');
             const loadingIndicator = document.getElementById('loadingIndicator');
@@ -373,25 +378,26 @@
             const probabilityList = document.getElementById('probabilityList');
             const marketInsight = document.getElementById('marketInsight');
             const resetButton = document.getElementById('resetButton');
+            const bidRatesInput = document.getElementById('bidRates');
 
             form.addEventListener('submit', event => {
                 event.preventDefault();
-                runSimulation();
+                runAnalysis();
             });
 
             resetButton.addEventListener('click', () => {
                 form.reset();
-                runSimulation();
+                runAnalysis();
             });
 
-            runSimulation();
+            runAnalysis();
 
-            function runSimulation() {
+            function runAnalysis() {
                 showLoading();
 
                 window.setTimeout(() => {
                     const params = collectFormData();
-                    const results = simulateBids(params);
+                    const results = analyzeBids(params);
                     hideLoading();
                     displayResults(params, results);
                 }, 30);
@@ -407,15 +413,9 @@
             }
 
             function collectFormData() {
-                const estimatedPrice = sanitizeNumber(document.getElementById('estimatedPrice').value, DEFAULTS.estimatedPrice, 1, 10000);
-                let lowerLimit = sanitizeNumber(document.getElementById('lowerLimit').value, DEFAULTS.lowerLimit, 80, 95);
-                let avgBidRate = sanitizeNumber(document.getElementById('avgBidRate').value, DEFAULTS.avgBidRate, 80, 99);
-                let competitorCount = sanitizeNumber(document.getElementById('competitorCount').value, DEFAULTS.competitorCount, 2, 30);
-
-                avgBidRate = Math.max(lowerLimit + 0.1, avgBidRate);
-                competitorCount = Math.round(competitorCount);
-
-                return { estimatedPrice, lowerLimit, avgBidRate, competitorCount };
+                const openPrice = sanitizeNumber(document.getElementById('openPrice').value, DEFAULTS.openPrice, 1, 10000);
+                const bidRates = parseRateList(bidRatesInput.value, DEFAULTS.bidRates);
+                return { openPrice, bidRates };
             }
 
             function sanitizeNumber(value, fallback, min, max) {
@@ -426,160 +426,200 @@
                 return Math.min(max, Math.max(min, parsed));
             }
 
-            function simulateBids(params) {
-                const maxRate = Math.min(95, Math.max(params.lowerLimit + 1, params.avgBidRate + 3));
-                const rates = buildRateRange(params.lowerLimit, maxRate);
-                const wins = new Array(rates.length).fill(0);
-                const winningRates = [];
-                const competitorStd = calculateCompetitorSpread(params);
+            function parseRateList(raw, fallback) {
+                const source = (raw || '').trim();
+                const text = source.length ? source : fallback;
+                const tokens = text.split(/[\s,]+/);
+                const rates = [];
+                const seen = new Set();
 
-                for (let i = 0; i < ITERATIONS; i++) {
-                    const competitorRates = [];
-                    for (let c = 0; c < params.competitorCount; c++) {
-                        const sampled = clampNumber(generateNormalRandom(params.avgBidRate, competitorStd), params.lowerLimit, 99.5);
-                        competitorRates.push(sampled);
+                for (const token of tokens) {
+                    if (!token) continue;
+                    const rate = Number.parseFloat(token);
+                    if (!Number.isFinite(rate) || rate <= 0) {
+                        continue;
                     }
-
-                    let winningRate = Infinity;
-                    for (const rate of competitorRates) {
-                        if (rate >= params.lowerLimit && rate < winningRate) {
-                            winningRate = rate;
-                        }
-                    }
-
-                    if (winningRate < Infinity) {
-                        winningRates.push(winningRate);
-                    }
-
-                    for (let idx = 0; idx < rates.length; idx++) {
-                        const myRate = rates[idx];
-                        if (myRate <= winningRate) {
-                            wins[idx]++;
-                        }
+                    const rounded = Math.round(rate * 100) / 100;
+                    const key = rounded.toFixed(2);
+                    if (!seen.has(key)) {
+                        rates.push(rounded);
+                        seen.add(key);
                     }
                 }
 
-                const probabilities = wins.map(count => count / ITERATIONS);
-                let bestIndex = 0;
-                for (let idx = 1; idx < probabilities.length; idx++) {
-                    if (probabilities[idx] > probabilities[bestIndex]) {
+                if (!rates.length && fallback && fallback !== text) {
+                    return parseRateList(fallback, '');
+                }
+
+                return rates;
+            }
+
+            function analyzeBids(params) {
+                const basePrice = params.openPrice * BASE_RATE;
+                const low = basePrice * (1 - RANGE_RATIO);
+                const high = basePrice * (1 + RANGE_RATIO);
+                const mean = (low + high) / 2;
+                const stdDev = (high - low) / Math.sqrt(48);
+
+                const bids = params.bidRates
+                    .map(rate => ({
+                        rate,
+                        price: params.openPrice * (rate / 100)
+                    }))
+                    .filter(bid => Number.isFinite(bid.price))
+                    .sort((a, b) => a.price - b.price);
+
+                const results = [];
+                let prevThreshold = low;
+
+                for (const bid of bids) {
+                    const intervalStart = Math.max(prevThreshold, low);
+                    const intervalEnd = Math.min(bid.price, high);
+                    let probability = 0;
+                    if (intervalEnd > intervalStart) {
+                        probability = averageCdf(intervalEnd, low, high) - averageCdf(intervalStart, low, high);
+                    }
+                    results.push({
+                        rate: bid.rate,
+                        price: bid.price,
+                        probability,
+                        intervalStart,
+                        intervalEnd
+                    });
+                    prevThreshold = Math.max(prevThreshold, bid.price);
+                }
+
+                const leftoverProbability = Math.max(0, 1 - averageCdf(prevThreshold, low, high));
+
+                let bestIndex = results.length ? 0 : -1;
+                for (let idx = 1; idx < results.length; idx++) {
+                    if (results[idx].probability > results[bestIndex].probability) {
                         bestIndex = idx;
                     }
                 }
 
-                const recommendedRate = rates[bestIndex];
-                const recommendedProbability = probabilities[bestIndex];
-                const confidence = calculateConfidenceInterval(recommendedProbability, ITERATIONS);
-
-                let averageWinningRate = null;
-                let winningRateStd = null;
-                let percentile10 = null;
-                let percentile90 = null;
-
-                if (winningRates.length) {
-                    averageWinningRate = calculateMean(winningRates);
-                    winningRateStd = calculateStdDev(winningRates, averageWinningRate);
-                    const sorted = [...winningRates].sort((a, b) => a - b);
-                    percentile10 = pickPercentile(sorted, 0.1);
-                    percentile90 = pickPercentile(sorted, 0.9);
-                }
-
-                const order = rates.map((_, idx) => idx).sort((a, b) => probabilities[b] - probabilities[a]);
-                const topIndices = order.slice(0, Math.min(5, order.length));
+                const topIndices = results
+                    .map((_, idx) => idx)
+                    .sort((a, b) => results[b].probability - results[a].probability)
+                    .slice(0, Math.min(5, results.length));
 
                 return {
-                    rates,
-                    probabilities,
-                    recommendedRate,
-                    recommendedProbability,
-                    confidence,
-                    averageWinningRate,
-                    winningRateStd,
-                    percentile10,
-                    percentile90,
+                    basePrice,
+                    low,
+                    high,
+                    mean,
+                    stdDev,
+                    bids: results,
+                    bestIndex,
                     topIndices,
-                    competitorStd
+                    leftoverProbability
                 };
             }
 
-            function buildRateRange(minRate, maxRate) {
-                const values = [];
-                for (let rate = minRate; rate <= maxRate + 1e-9; rate += RATE_STEP) {
-                    const rounded = Math.round(rate * 100) / 100;
-                    if (!values.length || Math.abs(rounded - values[values.length - 1]) > 1e-6) {
-                        values.push(rounded);
-                    }
+            function averageCdf(value, low, high) {
+                if (value <= low) {
+                    return 0;
                 }
-                if (values[values.length - 1] !== Math.round(maxRate * 100) / 100) {
-                    values.push(Math.round(maxRate * 100) / 100);
+                if (value >= high) {
+                    return 1;
                 }
-                return values;
+                const scale = high - low;
+                const z = (4 * (value - low)) / scale;
+                return irwinHallCdf(z);
             }
 
-            function calculateCompetitorSpread(params) {
-                const gap = Math.max(0.4, params.avgBidRate - params.lowerLimit);
-                const base = gap / 2.4;
-                const crowdFactor = (params.competitorCount - 2) * 0.05;
-                return Math.min(3, Math.max(0.4, base + crowdFactor));
+            function irwinHallCdf(z) {
+                if (z <= 0) {
+                    return 0;
+                }
+                if (z >= 4) {
+                    return 1;
+                }
+
+                const n = 4;
+                const upper = Math.floor(z);
+                let sum = 0;
+
+                for (let k = 0; k <= upper; k++) {
+                    const sign = k % 2 === 0 ? 1 : -1;
+                    sum += sign * combination(n, k) * Math.pow(z - k, n);
+                }
+
+                return sum / factorial(n);
             }
 
-            function calculateConfidenceInterval(probability, iterations) {
-                const error = Math.sqrt((probability * (1 - probability)) / iterations);
-                const low = Math.max(0, probability - 1.96 * error);
-                const high = Math.min(1, probability + 1.96 * error);
-                return { low, high };
+            function combination(n, k) {
+                if (k < 0 || k > n) {
+                    return 0;
+                }
+                if (k === 0 || k === n) {
+                    return 1;
+                }
+                let result = 1;
+                for (let i = 1; i <= k; i++) {
+                    result *= (n - (k - i));
+                    result /= i;
+                }
+                return result;
             }
 
-            function calculateMean(values) {
-                return values.reduce((sum, value) => sum + value, 0) / values.length;
-            }
-
-            function calculateStdDev(values, mean) {
-                if (values.length === 0) return 0;
-                const variance = values.reduce((sum, value) => sum + Math.pow(value - mean, 2), 0) / values.length;
-                return Math.sqrt(variance);
-            }
-
-            function pickPercentile(sortedValues, percentile) {
-                if (!sortedValues.length) return null;
-                const index = Math.floor((sortedValues.length - 1) * percentile);
-                return sortedValues[index];
+            function factorial(n) {
+                let result = 1;
+                for (let i = 2; i <= n; i++) {
+                    result *= i;
+                }
+                return result;
             }
 
             function displayResults(params, results) {
-                const probabilityPercent = results.recommendedProbability * 100;
-                const confidenceLow = results.confidence.low * 100;
-                const confidenceHigh = results.confidence.high * 100;
-                const expectedAmount = params.estimatedPrice * (results.recommendedRate / 100);
+                if (!results.bids.length) {
+                    resultSummary.innerHTML = `
+                        <p>유효한 투찰률을 최소 1개 이상 입력해주세요.</p>
+                    `;
+                    strategyNotes.innerHTML = '';
+                    probabilityList.innerHTML = '';
+                    marketInsight.textContent = '투찰률 목록을 입력하면 각 값의 낙찰 확률을 계산해 드립니다.';
+                    resultSection.hidden = false;
+                    return;
+                }
+
+                const bestBid = results.bestIndex >= 0 ? results.bids[results.bestIndex] : null;
+                const probabilityPercent = bestBid ? bestBid.probability * 100 : 0;
+                const expectedAmount = bestBid ? bestBid.price : 0;
 
                 resultSummary.innerHTML = `
-                    <p><strong>${results.recommendedRate.toFixed(2)}%</strong>로 투찰하면 예상 낙찰 확률은 <strong>${probabilityPercent.toFixed(1)}%</strong>입니다.</p>
-                    <p>예상 낙찰 금액은 약 <strong>${formatAmount(expectedAmount)}</strong>입니다.</p>
+                    <p><strong>${bestBid.rate.toFixed(2)}%</strong> 투찰 시 낙찰 확률은 <strong>${probabilityPercent.toFixed(1)}%</strong>입니다.</p>
+                    <p>해당 제시금액은 약 <strong>${formatAmount(expectedAmount)}</strong>입니다.</p>
                     <p class="hint">${buildStrategyHint(probabilityPercent)}</p>
                 `;
 
                 const notes = [
-                    `낙찰 확률 95% 신뢰범위: <strong>${confidenceLow.toFixed(1)}%</strong> ~ <strong>${confidenceHigh.toFixed(1)}%</strong>`,
-                    `시뮬레이션 반복: <strong>${ITERATIONS.toLocaleString()}</strong>회`
+                    `기준가격: <strong>${formatAmount(results.basePrice)}</strong>`,
+                    `추출 범위 (±2%): <strong>${formatAmount(results.low)} ~ ${formatAmount(results.high)}</strong>`,
+                    `표본 평균의 평균값: <strong>${formatAmount(results.mean)}</strong>`,
+                    `표본 평균 분포의 표준편차: <strong>${formatAmount(results.stdDev)}</strong>`,
+                    `분석 방법: <strong>${SAMPLE_SIZE}개 중 ${PICK_SIZE}개 평균의 정확 분포 계산</strong>`
                 ];
 
-                if (results.averageWinningRate !== null && results.winningRateStd !== null) {
-                    notes.splice(1, 0, `경쟁사 평균 낙찰률: <strong>${results.averageWinningRate.toFixed(2)}%</strong> (σ = ${results.winningRateStd.toFixed(2)}%)`);
+                if (results.leftoverProbability > 1e-6) {
+                    notes.push(`최고 투찰률보다 a 값이 커 낙찰자가 정해지지 않을 확률: <strong>${(results.leftoverProbability * 100).toFixed(1)}%</strong>`);
+                } else {
+                    notes.push('입력한 투찰률만으로도 모든 경우 낙찰자가 결정됩니다.');
                 }
 
                 strategyNotes.innerHTML = `<ul>${notes.map(note => `<li>${note}</li>`).join('')}</ul>`;
 
                 probabilityList.innerHTML = results.topIndices.map(idx => {
-                    const rate = results.rates[idx];
-                    const probability = results.probabilities[idx] * 100;
+                    const bid = results.bids[idx];
+                    const probability = bid.probability * 100;
                     const fillWidth = Math.max(3, Math.min(100, probability));
                     return `
                         <div class="probability-row">
-                            <div class="probability-label">${rate.toFixed(2)}%</div>
+                            <div class="probability-label" title="제시금액 ${formatAmount(bid.price)}">${bid.rate.toFixed(2)}%</div>
                             <div class="probability-bar">
                                 <div class="probability-fill" style="width: ${fillWidth}%;"></div>
                             </div>
-                            <div class="probability-value">${probability.toFixed(1)}%</div>
+                            <div class="probability-value">${probability.toFixed(2)}%</div>
                         </div>
                     `;
                 }).join('');
@@ -591,52 +631,52 @@
 
             function buildStrategyHint(probability) {
                 if (probability >= 35) {
-                    return '낙찰 가능성이 높은 구간입니다. 다만 현장 조건을 다시 한번 확인하세요.';
+                    return '낙찰 가능성이 높은 구간입니다. 다른 조건만 충족된다면 과감한 투찰도 고려할 수 있습니다.';
                 }
                 if (probability >= 20) {
                     return '낙찰 가능성이 중간 수준입니다. 원가 및 리스크를 면밀히 점검하세요.';
                 }
-                return '낙찰 확률이 낮은 편이므로 가격 외 경쟁력 확보를 함께 고려하세요.';
+                if (probability > 0) {
+                    return '낙찰 확률이 낮은 편이므로 대안 전략을 함께 고민하는 것이 좋습니다.';
+                }
+                return '해당 투찰률로는 낙찰이 불가능합니다. 상위 가격을 다시 검토하세요.';
             }
 
             function buildMarketInsight(params, results) {
-                const intensity = params.competitorCount <= 5
-                    ? '경쟁이 비교적 완만한 편입니다.'
-                    : params.competitorCount <= 9
-                        ? '경쟁이 보통 수준으로 예상됩니다.'
-                        : '경쟁이 다소 치열할 수 있습니다.';
-
-                let distribution = '경쟁사 낙찰률 분포를 파악하기 어렵습니다.';
-                if (results.averageWinningRate !== null && results.winningRateStd !== null) {
-                    distribution = `평균 낙찰률은 ${results.averageWinningRate.toFixed(2)}%이고 표준편차는 ${results.winningRateStd.toFixed(2)}%입니다.`;
-                    if (results.percentile10 !== null && results.percentile90 !== null) {
-                        distribution += ` 주로 ${results.percentile10.toFixed(2)}% ~ ${results.percentile90.toFixed(2)}% 사이에서 낙찰이 이루어졌습니다.`;
-                    }
+                if (!results.bids.length) {
+                    return '투찰률 목록이 비어 있어 시장 해석을 제공할 수 없습니다.';
                 }
 
-                const margin = results.recommendedRate - params.lowerLimit;
-                const marginText = margin >= 0
-                    ? `권장 투찰률은 낙찰하한율보다 ${margin.toFixed(2)}%p 높은 ${results.recommendedRate.toFixed(2)}% 지점입니다.`
-                    : `권장 투찰률은 낙찰하한율보다 ${Math.abs(margin).toFixed(2)}%p 낮은 ${results.recommendedRate.toFixed(2)}% 지점입니다.`;
+                const bestBid = results.bestIndex >= 0 ? results.bids[results.bestIndex] : null;
+                if (!bestBid) {
+                    return '분석된 투찰률이 없어 해석을 제공할 수 없습니다.';
+                }
 
-                return `${intensity} ${distribution} ${marginText}`;
+                const rangeText = `${formatAmount(results.low)} ~ ${formatAmount(results.high)}`;
+                let insight = `표본 평균 a 는 ${rangeText} 범위에서 형성되며 평균은 ${formatAmount(results.mean)}입니다. `;
+
+                if (bestBid.probability <= 0) {
+                    const highestBid = results.bids[results.bids.length - 1];
+                    insight += `모든 투찰률이 a 값 이하에 머물러 낙찰자가 결정되지 않습니다. ${formatAmount(highestBid.price)} 이상의 투찰률을 포함해야 합니다.`;
+                    return insight;
+                }
+
+                if (results.leftoverProbability > 1e-6) {
+                    const highestBid = results.bids[results.bids.length - 1];
+                    insight += `a 값이 ${formatAmount(highestBid.price)} 이상이 되는 상황이 ${(results.leftoverProbability * 100).toFixed(1)}% 존재하여 낙찰자가 정해지지 않을 수 있습니다. `;
+                } else {
+                    const coverage = 1 - results.leftoverProbability;
+                    insight += `입력한 투찰률이 분포의 ${(coverage * 100).toFixed(1)}%를 커버하여 모든 경우에 낙찰자가 결정됩니다. `;
+                }
+
+                const intervalUpper = Math.min(bestBid.intervalEnd, results.high);
+                insight += `가장 유리한 투찰률 ${bestBid.rate.toFixed(2)}%는 a 값이 ${formatAmount(bestBid.intervalStart)} 이상 ${formatAmount(intervalUpper)} 미만일 때 낙찰됩니다.`;
+
+                return insight;
             }
 
             function formatAmount(amount) {
-                return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }).format(amount) + '억 원';
-            }
-
-            function clampNumber(value, min, max) {
-                return Math.min(max, Math.max(min, value));
-            }
-
-            function generateNormalRandom(mean, stdDev) {
-                let u1 = Math.random();
-                let u2 = Math.random();
-                u1 = u1 === 0 ? Number.MIN_VALUE : u1;
-                u2 = u2 === 0 ? Number.MIN_VALUE : u2;
-                const z0 = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-                return mean + z0 * stdDev;
+                return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount) + '억 원';
             }
         })();
     </script>
