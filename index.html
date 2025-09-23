@@ -459,7 +459,7 @@
                 const low = basePrice * (1 - RANGE_RATIO);
                 const high = basePrice * (1 + RANGE_RATIO);
                 const mean = (low + high) / 2;
-                const stdDev = (high - low) / Math.sqrt(48);
+                const stdDev = (high - low) / Math.sqrt(12 * PICK_SIZE);
 
                 const bids = params.bidRates
                     .map(rate => ({
@@ -469,34 +469,72 @@
                     .filter(bid => Number.isFinite(bid.price))
                     .sort((a, b) => a.price - b.price);
 
-                const results = [];
-                let prevThreshold = low;
+                if (!bids.length) {
+                    return {
+                        basePrice,
+                        low,
+                        high,
+                        mean,
+                        stdDev,
+                        bids: [],
+                        bestIndex: -1,
+                        topIndices: [],
+                        leftoverProbability: 1,
+                        otherCompanyCount: 0,
+                        distribution: null,
+                        maxPrice: low
+                    };
+                }
 
-                for (const bid of bids) {
-                    const intervalStart = Math.max(prevThreshold, low);
-                    const intervalEnd = Math.min(bid.price, high);
-                    let probability = 0;
-                    if (intervalEnd > intervalStart) {
-                        probability = averageCdf(intervalEnd, low, high) - averageCdf(intervalStart, low, high);
-                    }
-                    results.push({
+                const priceData = bids.map(bid => clamp(bid.price, low, high));
+                const distribution = buildCompetitorDistribution(priceData, low, high, params.openPrice);
+                const otherCompanyCount = Math.max(0, bids.length - 1);
+
+                const integrationGrid = createIntegrationGrid(low, high, 4096);
+                const averagePdfValues = integrationGrid.map(value => averagePdf(value, low, high, PICK_SIZE));
+                const distributionCdfValues = integrationGrid.map(value => distribution.cdf(value));
+
+                const results = [];
+                let bestIndex = -1;
+                let maxProbability = -1;
+
+                for (let idx = 0; idx < bids.length; idx++) {
+                    const bid = bids[idx];
+                    const probability = computeWinProbability(
+                        bid.price,
+                        low,
+                        high,
+                        otherCompanyCount,
+                        distribution,
+                        integrationGrid,
+                        averagePdfValues,
+                        distributionCdfValues,
+                        PICK_SIZE
+                    );
+                    const thresholdUpper = Math.min(bid.price, high);
+                    const thresholdShare = averageCdf(thresholdUpper, low, high, PICK_SIZE);
+                    const competitorShareBelow = clamp01(distribution.cdf(bid.price));
+
+                    const entry = {
                         rate: bid.rate,
                         price: bid.price,
                         probability,
-                        intervalStart,
-                        intervalEnd
-                    });
-                    prevThreshold = Math.max(prevThreshold, bid.price);
-                }
+                        thresholdUpper,
+                        thresholdShare,
+                        competitorShareBelow
+                    };
 
-                const leftoverProbability = Math.max(0, 1 - averageCdf(prevThreshold, low, high));
+                    results.push(entry);
 
-                let bestIndex = results.length ? 0 : -1;
-                for (let idx = 1; idx < results.length; idx++) {
-                    if (results[idx].probability > results[bestIndex].probability) {
+                    if (probability > maxProbability) {
+                        maxProbability = probability;
                         bestIndex = idx;
                     }
                 }
+
+                const maxPrice = results.reduce((acc, item) => Math.max(acc, item.price), low);
+                const coverage = averageCdf(Math.min(maxPrice, high), low, high, PICK_SIZE);
+                const leftoverProbability = Math.max(0, 1 - coverage);
 
                 const topIndices = results
                     .map((_, idx) => idx)
@@ -512,11 +550,81 @@
                     bids: results,
                     bestIndex,
                     topIndices,
-                    leftoverProbability
+                    leftoverProbability,
+                    otherCompanyCount,
+                    distribution,
+                    maxPrice
                 };
             }
 
-            function averageCdf(value, low, high) {
+            function createIntegrationGrid(low, high, steps = 4096) {
+                const pointCount = Math.max(2, Math.trunc(steps));
+                const result = new Array(pointCount);
+                const step = (high - low) / (pointCount - 1);
+                for (let idx = 0; idx < pointCount; idx++) {
+                    result[idx] = low + step * idx;
+                }
+                return result;
+            }
+
+            function computeWinProbability(price, low, high, otherCompanyCount, distribution, grid, averagePdfValues, distributionCdfValues, pickSize) {
+                if (price <= low) {
+                    return 0;
+                }
+
+                const upper = Math.min(price, high);
+                if (upper <= low) {
+                    return 0;
+                }
+
+                const gp = clamp01(distribution.cdf(price));
+                const exponent = otherCompanyCount;
+
+                const integrand = (pdfValue, cdfValue) => {
+                    if (pdfValue <= 0) {
+                        return 0;
+                    }
+                    const base = clamp01(cdfValue + 1 - gp);
+                    if (base <= 0) {
+                        return 0;
+                    }
+                    return pdfValue * Math.pow(base, exponent);
+                };
+
+                let integral = 0;
+                let previousA = grid[0];
+                let previousIntegrand = integrand(averagePdfValues[0], distributionCdfValues[0]);
+
+                for (let idx = 1; idx < grid.length; idx++) {
+                    const currentA = grid[idx];
+                    const currentIntegrand = integrand(averagePdfValues[idx], distributionCdfValues[idx]);
+
+                    if (currentA >= upper) {
+                        const finalPdf = averagePdf(upper, low, high, pickSize);
+                        const finalCdf = distribution.cdf(upper);
+                        const finalIntegrand = integrand(finalPdf, finalCdf);
+                        integral += 0.5 * (upper - previousA) * (previousIntegrand + finalIntegrand);
+                        previousA = upper;
+                        previousIntegrand = finalIntegrand;
+                        break;
+                    } else {
+                        integral += 0.5 * (currentA - previousA) * (previousIntegrand + currentIntegrand);
+                        previousA = currentA;
+                        previousIntegrand = currentIntegrand;
+                    }
+                }
+
+                if (previousA < upper) {
+                    const finalPdf = averagePdf(upper, low, high, pickSize);
+                    const finalCdf = distribution.cdf(upper);
+                    const finalIntegrand = integrand(finalPdf, finalCdf);
+                    integral += 0.5 * (upper - previousA) * (previousIntegrand + finalIntegrand);
+                }
+
+                return clamp01(integral);
+            }
+
+            function averageCdf(value, low, high, pickSize) {
                 if (value <= low) {
                     return 0;
                 }
@@ -524,19 +632,27 @@
                     return 1;
                 }
                 const scale = high - low;
-                const z = (4 * (value - low)) / scale;
-                return irwinHallCdf(z);
+                const z = (pickSize * (value - low)) / scale;
+                return irwinHallCdf(z, pickSize);
             }
 
-            function irwinHallCdf(z) {
+            function averagePdf(value, low, high, pickSize) {
+                if (value <= low || value >= high) {
+                    return 0;
+                }
+                const scale = high - low;
+                const z = (pickSize * (value - low)) / scale;
+                return (pickSize / scale) * irwinHallPdf(z, pickSize);
+            }
+
+            function irwinHallCdf(z, n) {
                 if (z <= 0) {
                     return 0;
                 }
-                if (z >= 4) {
+                if (z >= n) {
                     return 1;
                 }
 
-                const n = 4;
                 const upper = Math.floor(z);
                 let sum = 0;
 
@@ -546,6 +662,22 @@
                 }
 
                 return sum / factorial(n);
+            }
+
+            function irwinHallPdf(z, n) {
+                if (z <= 0 || z >= n) {
+                    return 0;
+                }
+
+                const upper = Math.floor(z);
+                let sum = 0;
+
+                for (let k = 0; k <= upper; k++) {
+                    const sign = k % 2 === 0 ? 1 : -1;
+                    sum += sign * combination(n, k) * Math.pow(z - k, n - 1);
+                }
+
+                return sum / factorial(n - 1);
             }
 
             function combination(n, k) {
@@ -571,6 +703,164 @@
                 return result;
             }
 
+            function buildCompetitorDistribution(prices, low, high, openPrice) {
+                const range = Math.max(high - low, 1e-9);
+                const count = prices.length;
+
+                if (!count) {
+                    const uniform = createUniformDistribution(low, high);
+                    const mu = uniform.mu;
+                    const sigma = uniform.sigma;
+                    return {
+                        ...uniform,
+                        mu,
+                        sigma,
+                        sampleMean: mu,
+                        sampleStd: sigma,
+                        rateSampleMean: (mu / openPrice) * 100,
+                        rateSampleStd: (sigma / openPrice) * 100,
+                        rateMu: (mu / openPrice) * 100,
+                        rateSigma: (sigma / openPrice) * 100,
+                        count: 0
+                    };
+                }
+
+                const sampleMean = prices.reduce((acc, value) => acc + value, 0) / count;
+                const sampleVariance = count > 1
+                    ? prices.reduce((acc, value) => acc + Math.pow(value - sampleMean, 2), 0) / (count - 1)
+                    : 0;
+                const sampleStd = Math.sqrt(Math.max(sampleVariance, 0));
+
+                const muTarget = clamp(sampleMean, low + 0.05 * range, high - 0.05 * range);
+                const sigmaTarget = Math.max(sampleStd, range / 20);
+
+                let baseDistribution;
+                if (count >= 3) {
+                    baseDistribution = buildTruncatedNormalDistribution(low, high, muTarget, sigmaTarget);
+                } else {
+                    baseDistribution = createUniformDistribution(low, high);
+                }
+
+                const mu = baseDistribution.mu ?? muTarget;
+                const sigma = baseDistribution.sigma ?? Math.max(sampleStd, range / Math.sqrt(12));
+
+                return {
+                    ...baseDistribution,
+                    mu,
+                    sigma,
+                    sampleMean,
+                    sampleStd,
+                    rateSampleMean: (sampleMean / openPrice) * 100,
+                    rateSampleStd: (sampleStd / openPrice) * 100,
+                    rateMu: (mu / openPrice) * 100,
+                    rateSigma: (sigma / openPrice) * 100,
+                    count
+                };
+            }
+
+            function buildTruncatedNormalDistribution(low, high, mu, sigma) {
+                const range = high - low;
+                let adjustedMu = clamp(mu, low + 0.01 * range, high - 0.01 * range);
+                let adjustedSigma = Math.max(sigma, range / 40, 1e-6 * Math.abs(mu));
+                let alpha;
+                let beta;
+                let denom;
+
+                for (let attempt = 0; attempt < 6; attempt++) {
+                    alpha = (low - adjustedMu) / adjustedSigma;
+                    beta = (high - adjustedMu) / adjustedSigma;
+                    denom = standardNormalCdf(beta) - standardNormalCdf(alpha);
+                    if (denom > 1e-8) {
+                        break;
+                    }
+                    adjustedSigma *= 1.5;
+                }
+
+                if (!Number.isFinite(denom) || denom <= 1e-8) {
+                    return createUniformDistribution(low, high);
+                }
+
+                return {
+                    type: '절단 정규',
+                    mu: adjustedMu,
+                    sigma: adjustedSigma,
+                    pdf(value) {
+                        if (value < low || value > high) {
+                            return 0;
+                        }
+                        const z = (value - adjustedMu) / adjustedSigma;
+                        return standardNormalPdf(z) / (adjustedSigma * denom);
+                    },
+                    cdf(value) {
+                        if (value <= low) {
+                            return 0;
+                        }
+                        if (value >= high) {
+                            return 1;
+                        }
+                        const z = (value - adjustedMu) / adjustedSigma;
+                        const numerator = standardNormalCdf(z) - standardNormalCdf(alpha);
+                        return clamp01(numerator / denom);
+                    }
+                };
+            }
+
+            function createUniformDistribution(low, high) {
+                const range = Math.max(high - low, 1e-9);
+                const mu = (low + high) / 2;
+                const sigma = range / Math.sqrt(12);
+                return {
+                    type: '균등',
+                    mu,
+                    sigma,
+                    pdf(value) {
+                        if (value < low || value > high) {
+                            return 0;
+                        }
+                        return 1 / range;
+                    },
+                    cdf(value) {
+                        if (value <= low) {
+                            return 0;
+                        }
+                        if (value >= high) {
+                            return 1;
+                        }
+                        return (value - low) / range;
+                    }
+                };
+            }
+
+            function standardNormalPdf(x) {
+                return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
+            }
+
+            function standardNormalCdf(x) {
+                return 0.5 * (1 + erf(x / Math.SQRT2));
+            }
+
+            function erf(x) {
+                const sign = x >= 0 ? 1 : -1;
+                const absX = Math.abs(x);
+                const t = 1 / (1 + 0.3275911 * absX);
+                const a1 = 0.254829592;
+                const a2 = -0.284496736;
+                const a3 = 1.421413741;
+                const a4 = -1.453152027;
+                const a5 = 1.061405429;
+                const poly = (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t;
+                const expTerm = Math.exp(-absX * absX);
+                return sign * (1 - poly * expTerm);
+            }
+
+            function clamp(value, min, max) {
+                return Math.min(max, Math.max(min, value));
+            }
+
+            function clamp01(value) {
+                return clamp(value, 0, 1);
+            }
+
             function displayResults(params, results) {
                 if (!results.bids.length) {
                     resultSummary.innerHTML = `
@@ -593,16 +883,25 @@
                     <p class="hint">${buildStrategyHint(probabilityPercent)}</p>
                 `;
 
+                const rangePercent = (RANGE_RATIO * 100).toFixed(2);
                 const notes = [
                     `기준가격: <strong>${formatAmount(results.basePrice)}</strong>`,
-                    `추출 범위 (±2%): <strong>${formatAmount(results.low)} ~ ${formatAmount(results.high)}</strong>`,
+                    `추출 범위 (±${rangePercent}%): <strong>${formatAmount(results.low)} ~ ${formatAmount(results.high)}</strong>`,
                     `표본 평균의 평균값: <strong>${formatAmount(results.mean)}</strong>`,
                     `표본 평균 분포의 표준편차: <strong>${formatAmount(results.stdDev)}</strong>`,
-                    `분석 방법: <strong>${SAMPLE_SIZE}개 중 ${PICK_SIZE}개 평균의 정확 분포 계산</strong>`
+                    `타 업체 수 가정: <strong>${results.otherCompanyCount}</strong>곳`
                 ];
 
+                if (results.distribution) {
+                    const dist = results.distribution;
+                    notes.push(`타 업체 분포: <strong>${dist.type}</strong> (평균 ${formatAmount(dist.mu)}, 표준편차 ${formatAmount(dist.sigma)})`);
+                    notes.push(`입력 데이터 ${dist.count}건 기준 평균/표준편차: <strong>${formatAmount(dist.sampleMean)}</strong> / <strong>${formatAmount(dist.sampleStd)}</strong> (투찰률 ${dist.rateSampleMean.toFixed(2)}% / ${dist.rateSampleStd.toFixed(2)}%)`);
+                }
+
+                notes.push(`분석 방법: <strong>${SAMPLE_SIZE}개 중 ${PICK_SIZE}개 평균분포 + 타업체 연속분포 적분</strong>`);
+
                 if (results.leftoverProbability > 1e-6) {
-                    notes.push(`최고 투찰률보다 a 값이 커 낙찰자가 정해지지 않을 확률: <strong>${(results.leftoverProbability * 100).toFixed(1)}%</strong>`);
+                    notes.push(`임계값이 최고 투찰금액을 초과해 낙찰자가 정해지지 않을 확률: <strong>${(results.leftoverProbability * 100).toFixed(1)}%</strong>`);
                 } else {
                     notes.push('입력한 투찰률만으로도 모든 경우 낙찰자가 결정됩니다.');
                 }
@@ -613,9 +912,14 @@
                     const bid = results.bids[idx];
                     const probability = bid.probability * 100;
                     const fillWidth = Math.max(3, Math.min(100, probability));
+                    const tooltip = [
+                        `제시금액 ${formatAmount(bid.price)}`,
+                        `임계값 커버 ${(bid.thresholdShare * 100).toFixed(1)}%`,
+                        `타 업체 ≤ ${bid.rate.toFixed(2)}% 비중 ${(bid.competitorShareBelow * 100).toFixed(1)}%`
+                    ].join(' | ');
                     return `
                         <div class="probability-row">
-                            <div class="probability-label" title="제시금액 ${formatAmount(bid.price)}">${bid.rate.toFixed(2)}%</div>
+                            <div class="probability-label" title="${tooltip}">${bid.rate.toFixed(2)}%</div>
                             <div class="probability-bar">
                                 <div class="probability-fill" style="width: ${fillWidth}%;"></div>
                             </div>
@@ -653,24 +957,30 @@
                 }
 
                 const rangeText = `${formatAmount(results.low)} ~ ${formatAmount(results.high)}`;
-                let insight = `표본 평균 a 는 ${rangeText} 범위에서 형성되며 평균은 ${formatAmount(results.mean)}입니다. `;
+                let insight = `임계값 A는 ${rangeText} 범위에서 형성되며 평균은 ${formatAmount(results.mean)}입니다. `;
+
+                if (results.distribution) {
+                    const dist = results.distribution;
+                    insight += `타 업체 제시가격 분포는 ${dist.type}으로 가정했으며 평균 투찰률은 ${dist.rateMu.toFixed(2)}%, 표준편차는 ${dist.rateSigma.toFixed(2)}% 수준입니다. `;
+                }
 
                 if (bestBid.probability <= 0) {
                     const highestBid = results.bids[results.bids.length - 1];
-                    insight += `모든 투찰률이 a 값 이하에 머물러 낙찰자가 결정되지 않습니다. ${formatAmount(highestBid.price)} 이상의 투찰률을 포함해야 합니다.`;
+                    const cap = Math.min(results.high, highestBid.price);
+                    insight += `현재 입력한 후보만으로는 임계값을 넘는 전략이 없어 낙찰이 어렵습니다. ${formatAmount(cap)} 이상의 금액도 검토하세요.`;
                     return insight;
                 }
 
+                insight += `${bestBid.rate.toFixed(2)}% (${formatAmount(bestBid.price)}) 투찰 시 낙찰 확률은 ${(bestBid.probability * 100).toFixed(1)}%입니다. `;
+                insight += `임계값이 ${formatAmount(bestBid.thresholdUpper)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 타 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다. `;
+
                 if (results.leftoverProbability > 1e-6) {
-                    const highestBid = results.bids[results.bids.length - 1];
-                    insight += `a 값이 ${formatAmount(highestBid.price)} 이상이 되는 상황이 ${(results.leftoverProbability * 100).toFixed(1)}% 존재하여 낙찰자가 정해지지 않을 수 있습니다. `;
+                    const cap = Math.min(results.high, results.maxPrice);
+                    insight += `또한 임계값이 ${formatAmount(cap)} 이상일 경우 낙찰자가 정해지지 않을 확률이 ${(results.leftoverProbability * 100).toFixed(1)}% 존재합니다.`;
                 } else {
                     const coverage = 1 - results.leftoverProbability;
-                    insight += `입력한 투찰률이 분포의 ${(coverage * 100).toFixed(1)}%를 커버하여 모든 경우에 낙찰자가 결정됩니다. `;
+                    insight += `입력한 투찰률 구간만으로도 ${(coverage * 100).toFixed(1)}%의 상황에서 낙찰자가 결정됩니다.`;
                 }
-
-                const intervalUpper = Math.min(bestBid.intervalEnd, results.high);
-                insight += `가장 유리한 투찰률 ${bestBid.rate.toFixed(2)}%는 a 값이 ${formatAmount(bestBid.intervalStart)} 이상 ${formatAmount(intervalUpper)} 미만일 때 낙찰됩니다.`;
 
                 return insight;
             }
