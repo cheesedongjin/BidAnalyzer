@@ -339,7 +339,28 @@
                 </select>
                 <small class="field-hint">경쟁 업체 제시가격이 따른다고 가정하는 분포를 선택하세요.</small>
             </div>
-            <div id="distributionParams" class="field-group" aria-live="polite"></div>
+            <div class="field-group" aria-live="polite">
+                <div class="field">
+                    <label for="baseRate">기준 투찰률 (소수)</label>
+                    <input type="number" id="baseRate" name="baseRate" min="0.3" max="1.2" step="0.00001" value="0.79995">
+                    <small class="field-hint">공개가격에 곱해 기준가격을 계산할 때 사용하는 비율입니다.</small>
+                </div>
+                <div class="field">
+                    <label for="rangeRatio">임계값 범위 비율 (소수)</label>
+                    <input type="number" id="rangeRatio" name="rangeRatio" min="0.001" max="0.5" step="0.0005" value="0.02">
+                    <small class="field-hint">기준가격 대비 상·하단 임계값 범위를 결정하는 ±비율입니다.</small>
+                </div>
+                <div class="field">
+                    <label for="sampleSize">표본 크기</label>
+                    <input type="number" id="sampleSize" name="sampleSize" min="1" max="200" step="1" value="15">
+                    <small class="field-hint">평균 투찰 분포를 구성할 때 사용하는 총 표본 개수입니다.</small>
+                </div>
+                <div class="field">
+                    <label for="pickSize">추출 개수</label>
+                    <input type="number" id="pickSize" name="pickSize" min="1" max="200" step="1" value="4">
+                    <small class="field-hint">표본 중 평균을 계산할 때 선택하는 항목 수입니다.</small>
+                </div>
+            </div>
             <div class="action-row">
                 <button type="submit" class="btn btn-primary">분석 실행</button>
                 <button type="button" id="resetButton" class="btn btn-secondary">초기화</button>
@@ -399,13 +420,15 @@
                         truncMeanRate: 80.00,
                         truncStdRate: 0.45
                     }
+                },
+                calculation: {
+                    baseRate: 0.79995,
+                    rangeRatio: 0.02,
+                    sampleSize: 15,
+                    pickSize: 4
                 }
             };
 
-            const BASE_RATE = 0.79995;
-            const RANGE_RATIO = 0.02;
-            const SAMPLE_SIZE = 15;
-            const PICK_SIZE = 4;
             const CANDIDATE_GRID_POINTS = 121;
             const RATE_MIN = 50;
             const RATE_MAX = 120;
@@ -422,47 +445,22 @@
             const resetButton = document.getElementById('resetButton');
             const companyCountInput = document.getElementById('companyCount');
             const distributionTypeSelect = document.getElementById('distributionType');
-            const distributionParamsContainer = document.getElementById('distributionParams');
-
-            let currentDistributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
-            if (!currentDistributionType) {
-                currentDistributionType = DEFAULTS.distributionType;
-                distributionTypeSelect.value = currentDistributionType;
-            }
-
-            const distributionParamState = {
-                uniform: { ...DEFAULTS.distributionParams.uniform },
-                triangular: { ...DEFAULTS.distributionParams.triangular },
-                truncnormal: { ...DEFAULTS.distributionParams.truncnormal },
-                mixture: { ...DEFAULTS.distributionParams.mixture }
-            };
-
-            renderDistributionParams(currentDistributionType);
+            const baseRateInput = document.getElementById('baseRate');
+            const rangeRatioInput = document.getElementById('rangeRatio');
+            const sampleSizeInput = document.getElementById('sampleSize');
+            const pickSizeInput = document.getElementById('pickSize');
 
             form.addEventListener('submit', event => {
                 event.preventDefault();
                 runAnalysis();
             });
 
-            distributionTypeSelect.addEventListener('change', event => {
-                persistDistributionParams();
-                currentDistributionType = event.target.value || DEFAULTS.distributionType;
-                if (!currentDistributionType) {
-                    currentDistributionType = DEFAULTS.distributionType;
-                }
-                renderDistributionParams(currentDistributionType);
+            distributionTypeSelect.addEventListener('change', () => {
                 runAnalysis();
             });
 
             resetButton.addEventListener('click', () => {
                 form.reset();
-                resetDistributionParamState();
-                currentDistributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
-                if (!currentDistributionType) {
-                    currentDistributionType = DEFAULTS.distributionType;
-                    distributionTypeSelect.value = currentDistributionType;
-                }
-                renderDistributionParams(currentDistributionType);
                 runAnalysis();
             });
 
@@ -489,12 +487,27 @@
             }
 
             function collectFormData() {
-                persistDistributionParams();
                 const openPrice = sanitizeNumber(document.getElementById('openPrice').value, DEFAULTS.openPrice, 1, 10000);
                 const companyCount = sanitizeInteger(companyCountInput.value, DEFAULTS.companyCount, 1, 60);
-                const distributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
-                const distributionParams = { ...(distributionParamState[distributionType] ?? {}) };
-                return { openPrice, companyCount, distributionType, distributionParams };
+                let distributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
+                if (!Object.prototype.hasOwnProperty.call(DEFAULTS.distributionParams, distributionType)) {
+                    distributionType = DEFAULTS.distributionType;
+                }
+                const distributionParams = { ...(DEFAULTS.distributionParams[distributionType] ?? {}) };
+                const baseRate = sanitizeNumber(baseRateInput.value, DEFAULTS.calculation.baseRate, 0.3, 1.2);
+                const rangeRatio = sanitizeNumber(rangeRatioInput.value, DEFAULTS.calculation.rangeRatio, 0.001, 0.5);
+                const sampleSize = sanitizeInteger(sampleSizeInput.value, DEFAULTS.calculation.sampleSize, 1, 1000);
+                const pickSize = sanitizeInteger(pickSizeInput.value, DEFAULTS.calculation.pickSize, 1, sampleSize);
+                return {
+                    openPrice,
+                    companyCount,
+                    distributionType,
+                    distributionParams,
+                    baseRate,
+                    rangeRatio,
+                    sampleSize,
+                    pickSize
+                };
             }
 
             function sanitizeNumber(value, fallback, min = -Infinity, max = Infinity) {
@@ -518,273 +531,22 @@
                 return Math.trunc(clamped);
             }
 
-            function formatRateValue(value, digits = 2) {
-                return Number.isFinite(value) ? value.toFixed(digits) : '';
-            }
-
-            function createParamInput({ id, label, key, value, min, max, step = '0.01', digits = 2, hint }) {
-                const minAttr = Number.isFinite(min) ? ` min="${min}" data-min="${min}"` : '';
-                const maxAttr = Number.isFinite(max) ? ` max="${max}" data-max="${max}"` : '';
-                const stepAttr = step ? ` step="${step}"` : '';
-                const digitsAttr = ` data-digits="${digits}"`;
-                const safeValue = formatRateValue(value, digits);
-                return `
-                    <div class="field">
-                        <label for="${id}">${label}</label>
-                        <input type="number" id="${id}" data-param="${key}"${digitsAttr}${minAttr}${maxAttr}${stepAttr} value="${safeValue}">
-                        ${hint ? `<small class="field-hint">${hint}</small>` : ''}
-                    </div>
-                `;
-            }
-
-            function renderDistributionParams(type) {
-                const defaults = DEFAULTS.distributionParams[type] ?? {};
-                const state = distributionParamState[type] ?? { ...defaults };
-                distributionParamState[type] = state;
-
-                let fieldsHtml = '';
-
-                if (type === 'uniform') {
-                    fieldsHtml = [
-                        createParamInput({
-                            id: 'uniformMinRate',
-                            label: '분포 하한 투찰률 (%)',
-                            key: 'minRate',
-                            value: state.minRate ?? defaults.minRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '경쟁 업체가 낼 가능성이 가장 낮은 투찰률'
-                        }),
-                        createParamInput({
-                            id: 'uniformMaxRate',
-                            label: '분포 상한 투찰률 (%)',
-                            key: 'maxRate',
-                            value: state.maxRate ?? defaults.maxRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '경쟁 업체가 낼 가능성이 가장 높은 투찰률'
-                        })
-                    ].join('');
-                } else if (type === 'triangular') {
-                    fieldsHtml = [
-                        createParamInput({
-                            id: 'triMinRate',
-                            label: '최솟값 투찰률 (%)',
-                            key: 'minRate',
-                            value: state.minRate ?? defaults.minRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '경쟁 업체 투찰률의 가능한 최솟값'
-                        }),
-                        createParamInput({
-                            id: 'triModeRate',
-                            label: '최빈값 투찰률 (%)',
-                            key: 'modeRate',
-                            value: state.modeRate ?? defaults.modeRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '가장 가능성이 높은 투찰률 (중앙값 역할)'
-                        }),
-                        createParamInput({
-                            id: 'triMaxRate',
-                            label: '최댓값 투찰률 (%)',
-                            key: 'maxRate',
-                            value: state.maxRate ?? defaults.maxRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '경쟁 업체 투찰률의 가능한 최댓값'
-                        })
-                    ].join('');
-                } else if (type === 'truncnormal') {
-                    fieldsHtml = [
-                        createParamInput({
-                            id: 'truncMeanRate',
-                            label: '평균 투찰률 (%)',
-                            key: 'meanRate',
-                            value: state.meanRate ?? defaults.meanRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '경쟁 업체의 평균 투찰 수준'
-                        }),
-                        createParamInput({
-                            id: 'truncStdRate',
-                            label: '표준편차 (%)',
-                            key: 'stdRate',
-                            value: state.stdRate ?? defaults.stdRate,
-                            min: RATE_STD_MIN,
-                            max: RATE_STD_MAX,
-                            hint: '평균 대비 분산(흩어짐) 정도'
-                        })
-                    ].join('');
-                } else if (type === 'mixture') {
-                    fieldsHtml = [
-                        createParamInput({
-                            id: 'mixUniformWeight',
-                            label: '균등 분포 가중치 (%)',
-                            key: 'uniformWeight',
-                            value: state.uniformWeight ?? defaults.uniformWeight,
-                            min: 0,
-                            max: 100,
-                            step: '0.1',
-                            digits: 1,
-                            hint: '세 가중치 합계가 100%에 가깝도록 조정하세요.'
-                        }),
-                        createParamInput({
-                            id: 'mixTriangularWeight',
-                            label: '삼각 분포 가중치 (%)',
-                            key: 'triangularWeight',
-                            value: state.triangularWeight ?? defaults.triangularWeight,
-                            min: 0,
-                            max: 100,
-                            step: '0.1',
-                            digits: 1
-                        }),
-                        createParamInput({
-                            id: 'mixTruncWeight',
-                            label: '절단 정규 분포 가중치 (%)',
-                            key: 'truncnormalWeight',
-                            value: state.truncnormalWeight ?? defaults.truncnormalWeight,
-                            min: 0,
-                            max: 100,
-                            step: '0.1',
-                            digits: 1
-                        }),
-                        createParamInput({
-                            id: 'mixUniformMinRate',
-                            label: '균등 분포 하한 투찰률 (%)',
-                            key: 'uniformMinRate',
-                            value: state.uniformMinRate ?? defaults.uniformMinRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '균등 분포 구성의 가능한 최솟값'
-                        }),
-                        createParamInput({
-                            id: 'mixUniformMaxRate',
-                            label: '균등 분포 상한 투찰률 (%)',
-                            key: 'uniformMaxRate',
-                            value: state.uniformMaxRate ?? defaults.uniformMaxRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '균등 분포 구성의 가능한 최댓값'
-                        }),
-                        createParamInput({
-                            id: 'mixTriMinRate',
-                            label: '삼각 분포 최솟값 투찰률 (%)',
-                            key: 'triMinRate',
-                            value: state.triMinRate ?? defaults.triMinRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '삼각 분포 구성의 최솟값'
-                        }),
-                        createParamInput({
-                            id: 'mixTriModeRate',
-                            label: '삼각 분포 최빈값 투찰률 (%)',
-                            key: 'triModeRate',
-                            value: state.triModeRate ?? defaults.triModeRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '삼각 분포 구성에서 가장 가능성이 높은 값'
-                        }),
-                        createParamInput({
-                            id: 'mixTriMaxRate',
-                            label: '삼각 분포 최댓값 투찰률 (%)',
-                            key: 'triMaxRate',
-                            value: state.triMaxRate ?? defaults.triMaxRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '삼각 분포 구성의 최댓값'
-                        }),
-                        createParamInput({
-                            id: 'mixTruncMeanRate',
-                            label: '절단 정규 평균 투찰률 (%)',
-                            key: 'truncMeanRate',
-                            value: state.truncMeanRate ?? defaults.truncMeanRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '절단 정규 구성의 평균 투찰률'
-                        }),
-                        createParamInput({
-                            id: 'mixTruncStdRate',
-                            label: '절단 정규 표준편차 (%)',
-                            key: 'truncStdRate',
-                            value: state.truncStdRate ?? defaults.truncStdRate,
-                            min: RATE_STD_MIN,
-                            max: RATE_STD_MAX,
-                            hint: '절단 정규 구성의 표준편차'
-                        })
-                    ].join('');
-                } else {
-                    const fallbackDefaults = DEFAULTS.distributionParams.truncnormal;
-                    const fallbackState = distributionParamState.truncnormal ?? { ...fallbackDefaults };
-                    fieldsHtml = [
-                        createParamInput({
-                            id: 'truncMeanRate',
-                            label: '평균 투찰률 (%)',
-                            key: 'meanRate',
-                            value: fallbackState.meanRate ?? fallbackDefaults.meanRate,
-                            min: RATE_MIN,
-                            max: RATE_MAX,
-                            hint: '경쟁 업체의 평균 투찰 수준'
-                        }),
-                        createParamInput({
-                            id: 'truncStdRate',
-                            label: '표준편차 (%)',
-                            key: 'stdRate',
-                            value: fallbackState.stdRate ?? fallbackDefaults.stdRate,
-                            min: RATE_STD_MIN,
-                            max: RATE_STD_MAX,
-                            hint: '평균 대비 분산(흩어짐) 정도'
-                        })
-                    ].join('');
-                }
-
-                distributionParamsContainer.innerHTML = fieldsHtml;
-            }
-
-            function persistDistributionParams() {
-                const inputs = distributionParamsContainer.querySelectorAll('[data-param]');
-                if (!inputs.length) {
-                    return;
-                }
-                const type = currentDistributionType;
-                const defaults = DEFAULTS.distributionParams[type] ?? {};
-                const state = distributionParamState[type] ?? { ...defaults };
-                distributionParamState[type] = state;
-
-                inputs.forEach(input => {
-                    const key = input.dataset.param;
-                    if (!key) {
-                        return;
-                    }
-                    const min = input.dataset.min ? Number.parseFloat(input.dataset.min) : -Infinity;
-                    const max = input.dataset.max ? Number.parseFloat(input.dataset.max) : Infinity;
-                    const digits = input.dataset.digits ? Number.parseInt(input.dataset.digits, 10) : 2;
-                    const fallback = Number.isFinite(state[key]) ? state[key] : defaults[key];
-                    const sanitized = sanitizeNumber(input.value, fallback, min, max);
-                    state[key] = sanitized;
-                    input.value = formatRateValue(sanitized, digits);
-                });
-            }
-
-            function resetDistributionParamState() {
-                for (const [type, defaults] of Object.entries(DEFAULTS.distributionParams)) {
-                    distributionParamState[type] = { ...defaults };
-                }
-            }
-
             function analyzeBids(params) {
-                const basePrice = params.openPrice * BASE_RATE;
-                const low = basePrice * (1 - RANGE_RATIO);
-                const high = basePrice * (1 + RANGE_RATIO);
+                const baseRate = Number.isFinite(params.baseRate) ? params.baseRate : DEFAULTS.calculation.baseRate;
+                const rangeRatio = Number.isFinite(params.rangeRatio) ? params.rangeRatio : DEFAULTS.calculation.rangeRatio;
+                const pickSize = Number.isFinite(params.pickSize) ? params.pickSize : DEFAULTS.calculation.pickSize;
+                const basePrice = params.openPrice * baseRate;
+                const low = basePrice * (1 - rangeRatio);
+                const high = basePrice * (1 + rangeRatio);
                 const mean = (low + high) / 2;
-                const stdDev = (high - low) / Math.sqrt(12 * PICK_SIZE);
+                const stdDev = (high - low) / Math.sqrt(12 * pickSize);
 
                 const distribution = buildCompetitorDistributionFromSelection(params, low, high);
                 const otherCompanyCount = Math.max(0, (params.companyCount ?? DEFAULTS.companyCount) - 1);
                 const totalCompanyCount = otherCompanyCount + 1;
 
                 const integrationGrid = createIntegrationGrid(low, high, 4096);
-                const averagePdfValues = integrationGrid.map(value => averagePdf(value, low, high, PICK_SIZE));
+                const averagePdfValues = integrationGrid.map(value => averagePdf(value, low, high, pickSize));
                 const distributionCdfValues = integrationGrid.map(value => distribution.cdf(value));
 
                 const results = [];
@@ -804,10 +566,10 @@
                         integrationGrid,
                         averagePdfValues,
                         distributionCdfValues,
-                        PICK_SIZE
+                        pickSize
                     );
                     const thresholdUpper = Math.min(price, high);
-                    const thresholdShare = averageCdf(thresholdUpper, low, high, PICK_SIZE);
+                    const thresholdShare = averageCdf(thresholdUpper, low, high, pickSize);
                     const competitorShareBelow = clamp01(distribution.cdf(price));
 
                     const entry = {
@@ -828,7 +590,7 @@
                 }
 
                 const maxPrice = results.reduce((acc, item) => Math.max(acc, item.price), low);
-                const coverage = averageCdf(Math.min(maxPrice, high), low, high, PICK_SIZE);
+                const coverage = averageCdf(Math.min(maxPrice, high), low, high, pickSize);
                 const leftoverProbability = Math.max(0, 1 - coverage);
 
                 const topIndices = results
@@ -1483,7 +1245,10 @@
                     <p class="hint">${buildStrategyHint(probabilityPercent)}</p>
                 `;
 
-                const rangePercent = (RANGE_RATIO * 100).toFixed(2);
+                const rangeRatioPercent = Number.isFinite(params.rangeRatio)
+                    ? params.rangeRatio * 100
+                    : DEFAULTS.calculation.rangeRatio * 100;
+                const rangePercent = rangeRatioPercent.toFixed(2);
                 const lowRate = (results.low / params.openPrice) * 100;
                 const highRate = (results.high / params.openPrice) * 100;
                 const notes = [
@@ -1523,7 +1288,11 @@
                     }
                 }
 
-                notes.push(`분석 방법: <strong>${SAMPLE_SIZE}개 중 ${PICK_SIZE}개 평균분포 + 타업체 연속분포 적분</strong>`);
+                const sampleSize = Number.isFinite(params.sampleSize)
+                    ? params.sampleSize
+                    : DEFAULTS.calculation.sampleSize;
+                const pickSize = Number.isFinite(params.pickSize) ? params.pickSize : DEFAULTS.calculation.pickSize;
+                notes.push(`분석 방법: <strong>${sampleSize}개 중 ${pickSize}개 평균분포 + 타업체 연속분포 적분</strong>`);
 
                 if (results.leftoverProbability > 1e-6) {
                     notes.push(`임계값이 최고 투찰금액을 초과해 낙찰자가 정해지지 않을 확률: <strong>${(results.leftoverProbability * 100).toFixed(1)}%</strong>`);
