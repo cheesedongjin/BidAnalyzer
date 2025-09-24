@@ -387,13 +387,13 @@
             </div>
         </form>
 
-        <div id="loadingIndicator" class="card loading-card" hidden>
+        <div id="loadingIndicator" class="card loading-card" hidden role="status" aria-live="polite" aria-atomic="true">
             <div class="spinner" aria-hidden="true"></div>
             <p>확률 분포를 계산하는 중입니다...</p>
             <small>잠시만 기다려 주세요.</small>
         </div>
 
-        <section id="resultSection" class="card result-card" hidden aria-live="polite">
+        <section id="resultSection" class="card result-card" hidden aria-live="polite" aria-busy="false">
             <div id="resultSummary"></div>
 
             <div class="result-grid">
@@ -430,7 +430,7 @@
             const DEFAULTS = {
                 openPrice: 100,
                 companyCount: 8,
-                distributionType: 'truncnormal',
+                distributionType: 'mixture',
                 distributionParams: {
                     uniform: { minRate: 78.50, maxRate: 81.50 },
                     triangular: { minRate: 78.50, modeRate: 80.00, maxRate: 81.50 },
@@ -517,11 +517,19 @@
 
             function showLoading() {
                 loadingIndicator.hidden = false;
+                setResultBusyState(true);
                 resultSection.hidden = true;
             }
 
             function hideLoading() {
                 loadingIndicator.hidden = true;
+            }
+
+            function setResultBusyState(isBusy) {
+                if (!resultSection) {
+                    return;
+                }
+                resultSection.setAttribute('aria-busy', isBusy ? 'true' : 'false');
             }
 
             function collectFormData() {
@@ -1267,6 +1275,7 @@
 
             function displayResults(params, results) {
                 resultSection.hidden = false;
+                setResultBusyState(false);
 
                 if (!results.bids.length) {
                     resultSummary.innerHTML = `
