@@ -630,6 +630,10 @@
                     return 0;
                 }
 
+                if (otherCompanyCount <= 0) {
+                    return averageCdf(price, low, high, pickSize);
+                }
+
                 const upper = Math.min(price, high);
                 if (upper <= low) {
                     return 0;
