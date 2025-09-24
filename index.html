@@ -379,9 +379,14 @@
                     <small class="field-hint">기준가격 대비 상·하단 임계값 범위를 결정하는 ±비율입니다.</small>
                 </div>
                 <div class="field">
-                    <label for="sampleSize">표본 크기</label>
-                    <input type="number" id="sampleSize" name="sampleSize" min="1" max="200" step="1" value="15">
-                    <small class="field-hint">평균 투찰 분포를 구성할 때 사용하는 총 표본 개수입니다.</small>
+                    <label for="positiveSampleSize">표본 크기 (+임계값 범위)</label>
+                    <input type="number" id="positiveSampleSize" name="positiveSampleSize" min="0" max="200" step="1" value="8">
+                    <small class="field-hint">임계값 상단(+) 구간에서 사용하는 표본 개수입니다.</small>
+                </div>
+                <div class="field">
+                    <label for="negativeSampleSize">표본 크기 (-임계값 범위)</label>
+                    <input type="number" id="negativeSampleSize" name="negativeSampleSize" min="0" max="200" step="1" value="7">
+                    <small class="field-hint">임계값 하단(-) 구간에서 사용하는 표본 개수입니다.</small>
                 </div>
                 <div class="field">
                     <label for="pickSize">추출 개수</label>
@@ -459,7 +464,8 @@
                 calculation: {
                     baseRate: 0.79995,
                     rangeRatio: 0.02,
-                    sampleSize: 15,
+                    positiveSampleSize: 8,
+                    negativeSampleSize: 7,
                     pickSize: 4
                 }
             };
@@ -484,7 +490,8 @@
             const distributionTypeSelect = document.getElementById('distributionType');
             const baseRateInput = document.getElementById('baseRate');
             const rangeRatioInput = document.getElementById('rangeRatio');
-            const sampleSizeInput = document.getElementById('sampleSize');
+            const positiveSampleSizeInput = document.getElementById('positiveSampleSize');
+            const negativeSampleSizeInput = document.getElementById('negativeSampleSize');
             const pickSizeInput = document.getElementById('pickSize');
 
             let latestChartState = null;
@@ -550,8 +557,30 @@
                 const distributionParams = { ...(DEFAULTS.distributionParams[distributionType] ?? {}) };
                 const baseRate = sanitizeNumber(baseRateInput.value, DEFAULTS.calculation.baseRate, 0.3, 1.2);
                 const rangeRatio = sanitizeNumber(rangeRatioInput.value, DEFAULTS.calculation.rangeRatio, 0.001, 0.5);
-                const sampleSize = sanitizeInteger(sampleSizeInput.value, DEFAULTS.calculation.sampleSize, 1, 1000);
-                const pickSize = sanitizeInteger(pickSizeInput.value, DEFAULTS.calculation.pickSize, 1, sampleSize);
+                let positiveSampleSize = sanitizeInteger(
+                    positiveSampleSizeInput.value,
+                    DEFAULTS.calculation.positiveSampleSize,
+                    0,
+                    200
+                );
+                let negativeSampleSize = sanitizeInteger(
+                    negativeSampleSizeInput.value,
+                    DEFAULTS.calculation.negativeSampleSize,
+                    0,
+                    200
+                );
+                let sampleSize = positiveSampleSize + negativeSampleSize;
+                if (!Number.isFinite(sampleSize) || sampleSize < 1) {
+                    positiveSampleSize = Math.max(0, DEFAULTS.calculation.positiveSampleSize);
+                    negativeSampleSize = Math.max(0, DEFAULTS.calculation.negativeSampleSize);
+                    sampleSize = Math.max(1, positiveSampleSize + negativeSampleSize);
+                }
+                const pickSize = sanitizeInteger(
+                    pickSizeInput.value,
+                    DEFAULTS.calculation.pickSize,
+                    1,
+                    Math.max(sampleSize, 1)
+                );
                 return {
                     openPrice,
                     companyCount,
@@ -559,6 +588,8 @@
                     distributionParams,
                     baseRate,
                     rangeRatio,
+                    positiveSampleSize,
+                    negativeSampleSize,
                     sampleSize,
                     pickSize
                 };
@@ -1332,11 +1363,26 @@
                     }
                 }
 
-                const sampleSize = Number.isFinite(params.sampleSize)
-                    ? params.sampleSize
-                    : DEFAULTS.calculation.sampleSize;
-                const pickSize = Number.isFinite(params.pickSize) ? params.pickSize : DEFAULTS.calculation.pickSize;
-                notes.push(`분석 방법: <strong>${sampleSize}개 중 ${pickSize}개 평균분포 + 타업체 연속분포 적분</strong>`);
+                let positiveSampleSize = Number.isFinite(params.positiveSampleSize)
+                    ? params.positiveSampleSize
+                    : DEFAULTS.calculation.positiveSampleSize;
+                let negativeSampleSize = Number.isFinite(params.negativeSampleSize)
+                    ? params.negativeSampleSize
+                    : DEFAULTS.calculation.negativeSampleSize;
+                positiveSampleSize = Math.max(0, Math.trunc(positiveSampleSize));
+                negativeSampleSize = Math.max(0, Math.trunc(negativeSampleSize));
+                let sampleSize = positiveSampleSize + negativeSampleSize;
+                if (!Number.isFinite(sampleSize) || sampleSize <= 0) {
+                    positiveSampleSize = Math.max(0, DEFAULTS.calculation.positiveSampleSize);
+                    negativeSampleSize = Math.max(0, DEFAULTS.calculation.negativeSampleSize);
+                    sampleSize = Math.max(1, positiveSampleSize + negativeSampleSize);
+                }
+                const rawPickSize = Number.isFinite(params.pickSize)
+                    ? params.pickSize
+                    : DEFAULTS.calculation.pickSize;
+                const pickSize = clamp(Math.trunc(rawPickSize), 1, Math.max(sampleSize, 1));
+                const sampleBreakdown = `+${positiveSampleSize}개 · -${negativeSampleSize}개 (총 ${sampleSize}개)`;
+                notes.push(`분석 방법: <strong>${sampleBreakdown} 중 ${pickSize}개 평균분포 + 타업체 연속분포 적분</strong>`);
 
                 if (results.leftoverProbability > 1e-6) {
                     notes.push(`임계값이 최고 투찰금액을 초과해 낙찰자가 정해지지 않을 확률: <strong>${(results.leftoverProbability * 100).toFixed(1)}%</strong>`);
