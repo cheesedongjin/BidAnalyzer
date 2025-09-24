@@ -788,10 +788,10 @@
 
                 // (+표본, -표본)을 각각 전달
                 const averagePdfValues = integrationGrid.map(value =>
-                    averagePdf(value, low, high, pickSize, posN, negN)
+                    averagePdf(value, low, high, basePrice, pickSize, posN, negN)
                 );
                 const distributionCdfValues = integrationGrid.map(value =>
-                    averageCdf(value, low, high, pickSize, posN, negN)
+                    averageCdf(value, low, high, basePrice, pickSize, posN, negN)
                 );
 
                 const results = [];
@@ -819,7 +819,7 @@
 
                     const thresholdUpper = Math.min(price, high);
                     // averageCdf 호출 시도 모두 (+표본, -표본) 명시 전달
-                    const thresholdShare = averageCdf(thresholdUpper, low, high, pickSize, posN, negN);
+                    const thresholdShare = averageCdf(thresholdUpper, low, high, basePrice, pickSize, posN, negN);
 
                     const competitorShareBelow = clamp01(distribution.cdf(price));
 
@@ -841,7 +841,7 @@
                 }
 
                 const maxPrice = results.reduce((acc, item) => Math.max(acc, item.price), low);
-                const coverage = averageCdf(Math.min(maxPrice, high), low, high, pickSize, posN, negN);
+                const coverage = averageCdf(Math.min(maxPrice, high), low, high, basePrice, pickSize, posN, negN);
                 const leftoverProbability = Math.max(0, 1 - coverage);
 
                 const topIndices = results
@@ -895,7 +895,7 @@
 
                 // 경쟁사가 없는 경우 → 임계값이 price 이하에서 형성될 확률
                 if (otherCompanyCount <= 0) {
-                    return averageCdf(price, low, high, pickSize, positiveSampleSize, negativeSampleSize);
+                    return averageCdf(price, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize);
                 }
 
                 // 경쟁사가 있는 경우 → 적분 기반 계산 유지
@@ -921,8 +921,8 @@
 
                     if (currentA >= upper) {
                         // 여기서도 (+표본, -표본) 명시 전달
-                        const finalPdf = averagePdf(upper, low, high, pickSize, positiveSampleSize, negativeSampleSize);
-                        const finalCdf = averageCdf(upper, low, high, pickSize, positiveSampleSize, negativeSampleSize);
+                        const finalPdf = averagePdf(upper, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize);
+                        const finalCdf = averageCdf(upper, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize);
                         const finalIntegrand = integrand(finalPdf, finalCdf);
                         integral += 0.5 * (upper - previousA) * (previousIntegrand + finalIntegrand);
                         break;
@@ -936,23 +936,24 @@
                 return clamp01(integral);
             }
 
-            function averagePdf(value, low, high, pickSize, positiveSampleSize, negativeSampleSize) {
-                if (value <= low || value >= high) return 0;
-
-                const range = high - low;
+            function averagePdf(value, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize) {
                 let totalWeight = 0;
                 let weightedPdf = 0;
 
-                if (positiveSampleSize > 0) {
-                    const z = (value - low) / range * positiveSampleSize;
-                    const pdf = irwinHallPdf(z, positiveSampleSize) * (positiveSampleSize / range);
+                // + 구간 (basePrice ~ high)
+                if (positiveSampleSize > 0 && value >= basePrice && value <= high) {
+                    const rangePos = high - basePrice;
+                    const z = (value - basePrice) / rangePos * positiveSampleSize;
+                    const pdf = irwinHallPdf(z, positiveSampleSize) * (positiveSampleSize / rangePos);
                     weightedPdf += pdf * positiveSampleSize;
                     totalWeight += positiveSampleSize;
                 }
 
-                if (negativeSampleSize > 0) {
-                    const z = (value - low) / range * negativeSampleSize;
-                    const pdf = irwinHallPdf(z, negativeSampleSize) * (negativeSampleSize / range);
+                // - 구간 (low ~ basePrice)
+                if (negativeSampleSize > 0 && value >= low && value <= basePrice) {
+                    const rangeNeg = basePrice - low;
+                    const z = (value - low) / rangeNeg * negativeSampleSize;
+                    const pdf = irwinHallPdf(z, negativeSampleSize) * (negativeSampleSize / rangeNeg);
                     weightedPdf += pdf * negativeSampleSize;
                     totalWeight += negativeSampleSize;
                 }
@@ -961,26 +962,40 @@
                 return weightedPdf / totalWeight;
             }
 
-            function averageCdf(value, low, high, pickSize, positiveSampleSize, negativeSampleSize) {
-                if (value <= low) return 0;
-                if (value >= high) return 1;
-
-                const range = high - low;
+            function averageCdf(value, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize) {
                 let totalWeight = 0;
                 let weightedCdf = 0;
 
+                // + 구간 (basePrice ~ high)
                 if (positiveSampleSize > 0) {
-                    const z = (value - low) / range * positiveSampleSize;
-                    const cdf = irwinHallCdf(z, positiveSampleSize);
-                    weightedCdf += cdf * positiveSampleSize;
-                    totalWeight += positiveSampleSize;
+                    if (value <= basePrice) {
+                        // +쪽은 아직 시작 전 → 확률 0
+                    } else if (value >= high) {
+                        weightedCdf += 1 * positiveSampleSize;
+                        totalWeight += positiveSampleSize;
+                    } else {
+                        const rangePos = high - basePrice;
+                        const z = (value - basePrice) / rangePos * positiveSampleSize;
+                        const cdf = irwinHallCdf(z, positiveSampleSize);
+                        weightedCdf += cdf * positiveSampleSize;
+                        totalWeight += positiveSampleSize;
+                    }
                 }
 
+                // - 구간 (low ~ basePrice)
                 if (negativeSampleSize > 0) {
-                    const z = (value - low) / range * negativeSampleSize;
-                    const cdf = irwinHallCdf(z, negativeSampleSize);
-                    weightedCdf += cdf * negativeSampleSize;
-                    totalWeight += negativeSampleSize;
+                    if (value <= low) {
+                        // –쪽도 아직 시작 전 → 확률 0
+                    } else if (value >= basePrice) {
+                        weightedCdf += 1 * negativeSampleSize;
+                        totalWeight += negativeSampleSize;
+                    } else {
+                        const rangeNeg = basePrice - low;
+                        const z = (value - low) / rangeNeg * negativeSampleSize;
+                        const cdf = irwinHallCdf(z, negativeSampleSize);
+                        weightedCdf += cdf * negativeSampleSize;
+                        totalWeight += negativeSampleSize;
+                    }
                 }
 
                 if (totalWeight <= 0) return 0;
