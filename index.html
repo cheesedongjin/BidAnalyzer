@@ -764,40 +764,55 @@
                 return clamp01(integral);
             }
 
-            function averagePdf(value, low, high, pickSize, distribution, sampleSize) {
-                if (value <= low || sampleSize <= 0) return 0;
+            function averagePdf(value, low, high, pickSize, positiveSampleSize, negativeSampleSize) {
+                if (value <= low || value >= high) return 0;
 
-                // Irwin–Hall 분포 (표본합) → 표본평균 분포로 변환
                 const range = high - low;
-                const z = (value - low) / range * sampleSize;
+                let totalWeight = 0;
+                let weightedPdf = 0;
 
-                // Irwin–Hall PDF 계산
-                let pdf = 0;
-                for (let k = 0; k <= Math.floor(z); k++) {
-                    const sign = (k % 2 === 0 ? 1 : -1);
-                    pdf += sign * combination(sampleSize, k) * Math.pow(z - k, sampleSize - 1);
+                if (positiveSampleSize > 0) {
+                    const z = (value - low) / range * positiveSampleSize;
+                    const pdf = irwinHallPdf(z, positiveSampleSize) * (positiveSampleSize / range);
+                    weightedPdf += pdf * positiveSampleSize;
+                    totalWeight += positiveSampleSize;
                 }
-                pdf /= factorial(sampleSize - 1);
 
-                // 표본평균 분포이므로 스케일 조정
-                return pdf * (sampleSize / range);
+                if (negativeSampleSize > 0) {
+                    const z = (value - low) / range * negativeSampleSize;
+                    const pdf = irwinHallPdf(z, negativeSampleSize) * (negativeSampleSize / range);
+                    weightedPdf += pdf * negativeSampleSize;
+                    totalWeight += negativeSampleSize;
+                }
+
+                if (totalWeight <= 0) return 0;
+                return weightedPdf / totalWeight;
             }
 
-            function averageCdf(value, low, high, pickSize, distribution, sampleSize) {
-                if (value <= low || sampleSize <= 0) return 0;
+            function averageCdf(value, low, high, pickSize, positiveSampleSize, negativeSampleSize) {
+                if (value <= low) return 0;
+                if (value >= high) return 1;
 
                 const range = high - low;
-                const z = (value - low) / range * sampleSize;
+                let totalWeight = 0;
+                let weightedCdf = 0;
 
-                // Irwin–Hall CDF 계산
-                let cdf = 0;
-                for (let k = 0; k <= Math.floor(z); k++) {
-                    const sign = (k % 2 === 0 ? 1 : -1);
-                    cdf += sign * combination(sampleSize, k) * Math.pow(z - k, sampleSize);
+                if (positiveSampleSize > 0) {
+                    const z = (value - low) / range * positiveSampleSize;
+                    const cdf = irwinHallCdf(z, positiveSampleSize);
+                    weightedCdf += cdf * positiveSampleSize;
+                    totalWeight += positiveSampleSize;
                 }
-                cdf /= factorial(sampleSize);
 
-                return clamp01(cdf);
+                if (negativeSampleSize > 0) {
+                    const z = (value - low) / range * negativeSampleSize;
+                    const cdf = irwinHallCdf(z, negativeSampleSize);
+                    weightedCdf += cdf * negativeSampleSize;
+                    totalWeight += negativeSampleSize;
+                }
+
+                if (totalWeight <= 0) return 0;
+                return clamp01(weightedCdf / totalWeight);
             }
 
             function irwinHallCdf(z, n) {
