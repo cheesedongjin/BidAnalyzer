@@ -236,6 +236,21 @@
             height: 100%;
         }
 
+        .chart-tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(15, 23, 42, 0.9);
+            color: #fff;
+            padding: 6px 10px;
+            font-size: 12px;
+            border-radius: 6px;
+            white-space: nowrap;
+            z-index: 10;
+            transform: translate(-50%, -120%);
+            opacity: 0;
+            transition: opacity 0.1s ease;
+        }
+
         .chart-summary {
             margin-top: 12px;
             font-size: 13px;
@@ -427,6 +442,7 @@
                     <h3>가격별 낙찰 확률</h3>
                     <div class="chart-container">
                         <canvas id="winRateChart" class="chart-canvas" width="600" height="220" aria-label="가격별 낙찰 확률 곡선"></canvas>
+                        <div id="chartTooltip" class="chart-tooltip" role="presentation" aria-hidden="true"></div>
                     </div>
                     <p id="winRateChartSummary" class="chart-summary"></p>
                 </div>
@@ -494,6 +510,7 @@
             const probabilityList = document.getElementById('probabilityList');
             const winRateChartCanvas = document.getElementById('winRateChart');
             const winRateChartSummary = document.getElementById('winRateChartSummary');
+            const chartTooltip = document.getElementById('chartTooltip');
             const marketInsight = document.getElementById('marketInsight');
             const resetButton = document.getElementById('resetButton');
             const openPriceInput = document.getElementById('openPrice');
@@ -507,6 +524,90 @@
             const pickSizeInput = document.getElementById('pickSize');
 
             let latestChartState = null;
+
+            const hideChartTooltip = () => {
+                if (!chartTooltip) {
+                    return;
+                }
+                chartTooltip.style.opacity = '0';
+                chartTooltip.setAttribute('aria-hidden', 'true');
+            };
+
+            if (winRateChartCanvas && chartTooltip) {
+                winRateChartCanvas.addEventListener('mousemove', event => {
+                    if (!latestChartState || !latestChartState.results) {
+                        hideChartTooltip();
+                        return;
+                    }
+
+                    const { results, params } = latestChartState;
+                    const bids = Array.isArray(results.bids) ? results.bids : [];
+                    if (!bids.length) {
+                        hideChartTooltip();
+                        return;
+                    }
+
+                    const rect = winRateChartCanvas.getBoundingClientRect();
+                    if (!rect.width || !rect.height) {
+                        hideChartTooltip();
+                        return;
+                    }
+
+                    const dpr = window.devicePixelRatio || 1;
+                    const cssWidth = Number.parseFloat(winRateChartCanvas.dataset?.prevWidth) || rect.width || (winRateChartCanvas.width / dpr);
+                    const cssHeight = Number.parseFloat(winRateChartCanvas.dataset?.prevHeight) || rect.height || (winRateChartCanvas.height / dpr);
+                    const pointerX = (event.clientX - rect.left) * (cssWidth / rect.width);
+                    const pointerY = (event.clientY - rect.top) * (cssHeight / rect.height);
+
+                    const padding = { top: 18, right: 16, bottom: 36, left: 68 };
+                    const shift = getAmountShift(params);
+
+                    const minX = Math.min(...bids.map(bid => bid.price + shift));
+                    const maxX = Math.max(...bids.map(bid => bid.price + shift));
+                    const xRange = Math.max(maxX - minX, 1e-9);
+                    const yMax = Math.max(...bids.map(bid => bid.probability), 0);
+
+                    const scaleX = value => {
+                        const ratio = (value - minX) / xRange;
+                        return padding.left + ratio * (cssWidth - padding.left - padding.right);
+                    };
+
+                    const scaleY = probability => {
+                        const ratio = yMax > 0 ? probability / yMax : 0;
+                        return padding.top + (1 - ratio) * (cssHeight - padding.top - padding.bottom);
+                    };
+
+                    let closestBid = null;
+                    let minDistance = Infinity;
+                    for (const bid of bids) {
+                        const cx = scaleX(bid.price + shift);
+                        const cy = scaleY(bid.probability);
+                        const distance = Math.hypot(pointerX - cx, pointerY - cy);
+                        if (distance < minDistance) {
+                            minDistance = distance;
+                            closestBid = bid;
+                        }
+                    }
+
+                    if (closestBid && minDistance <= 30) {
+                        chartTooltip.style.left = `${event.clientX - rect.left}px`;
+                        chartTooltip.style.top = `${event.clientY - rect.top}px`;
+                        chartTooltip.innerHTML = `
+                            ${closestBid.rate.toFixed(2)}%<br>
+                            확률: ${(closestBid.probability * 100).toFixed(1)}%<br>
+                            금액: ${formatAmount(closestBid.price + shift)}
+                        `.trim();
+                        chartTooltip.style.opacity = '1';
+                        chartTooltip.setAttribute('aria-hidden', 'false');
+                    } else {
+                        hideChartTooltip();
+                    }
+                });
+
+                winRateChartCanvas.addEventListener('mouseleave', () => {
+                    hideChartTooltip();
+                });
+            }
 
             const sampleSizeInputs = [
                 positiveSampleSizeInput,
@@ -526,6 +627,7 @@
                     return;
                 }
                 renderWinRateChart(winRateChartCanvas, latestChartState.results, latestChartState.params);
+                hideChartTooltip();
             });
 
             form.addEventListener('submit', event => {
@@ -1675,6 +1777,7 @@
 
                 latestChartState = { params, results };
                 renderWinRateChart(winRateChartCanvas, results, params);
+                hideChartTooltip();
 
                 if (winRateChartSummary) {
                     winRateChartSummary.textContent = buildWinRateChartSummary(params, results);
@@ -1683,12 +1786,14 @@
                 window.requestAnimationFrame(() => {
                     if (latestChartState && latestChartState.results === results) {
                         renderWinRateChart(winRateChartCanvas, results, params);
+                        hideChartTooltip();
                     }
                 });
             }
 
             function clearWinRateChart(message) {
                 latestChartState = null;
+                hideChartTooltip();
 
                 if (winRateChartSummary) {
                     winRateChartSummary.textContent = message || '그래프를 표시할 데이터가 없습니다.';
