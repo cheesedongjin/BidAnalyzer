@@ -771,18 +771,36 @@
                 const rangeRatio = Number.isFinite(params.rangeRatio) ? params.rangeRatio : DEFAULTS.calculation.rangeRatio;
                 const pickSize = Number.isFinite(params.pickSize) ? params.pickSize : DEFAULTS.calculation.pickSize;
                 const basePrice = params.openPrice * baseRate;
-                const low = basePrice * (1 - rangeRatio);
-                const high = basePrice * (1 + rangeRatio);
+
+                // 표본 크기 먼저 계산
+                const posN = Math.max(0, Math.trunc(Number.isFinite(params.positiveSampleSize) ? params.positiveSampleSize : DEFAULTS.calculation.positiveSampleSize));
+                const negN = Math.max(0, Math.trunc(Number.isFinite(params.negativeSampleSize) ? params.negativeSampleSize : DEFAULTS.calculation.negativeSampleSize));
+
+                // 임계값 범위 계산
+                let low = basePrice;
+                let high = basePrice;
+                if (negN > 0) {
+                    low = basePrice * (1 - rangeRatio);
+                }
+                if (posN > 0) {
+                    high = basePrice * (1 + rangeRatio);
+                }
+
+                // 표본 평균 기대값 / 분산
+                const mean = (posN + negN > 0)
+                    ? (posN * (basePrice + high) / 2 + negN * (low + basePrice) / 2) / (posN + negN)
+                    : basePrice;
+
+                const variance = (posN > 0 ? Math.pow(high - basePrice, 2) / (12 * posN) : 0) +
+                                (negN > 0 ? Math.pow(basePrice - low, 2) / (12 * negN) : 0);
+
+                const stdDev = Math.sqrt(variance);
+
                 const gridHigh = Math.max(high, params.openPrice);
-                const mean = (low + high) / 2;
-                const stdDev = (high - low) / Math.sqrt(12 * pickSize);
 
                 const distribution = buildCompetitorDistributionFromSelection(params, low, high);
                 const otherCompanyCount = Math.max(0, (params.companyCount ?? DEFAULTS.companyCount) - 1);
                 const totalCompanyCount = otherCompanyCount + 1;
-
-                const posN = Math.max(0, Math.trunc(Number.isFinite(params.positiveSampleSize) ? params.positiveSampleSize : DEFAULTS.calculation.positiveSampleSize));
-                const negN = Math.max(0, Math.trunc(Number.isFinite(params.negativeSampleSize) ? params.negativeSampleSize : DEFAULTS.calculation.negativeSampleSize));
 
                 const integrationGrid = createIntegrationGrid(low, high, 4096);
 
@@ -819,7 +837,6 @@
                     );
 
                     const thresholdUpper = Math.min(price, high);
-                    // averageCdf 호출 시도 모두 (+표본, -표본) 명시 전달
                     const thresholdShare = averageCdf(thresholdUpper, low, high, basePrice, pickSize, posN, negN);
 
                     const competitorShareBelow = clamp01(distribution.cdf(price));
