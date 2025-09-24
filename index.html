@@ -497,6 +497,19 @@
 
             let latestChartState = null;
 
+            const sampleSizeInputs = [
+                positiveSampleSizeInput,
+                negativeSampleSizeInput,
+                pickSizeInput
+            ];
+            sampleSizeInputs.forEach(input => {
+                if (!input) {
+                    return;
+                }
+                input.addEventListener('input', clearPickSizeValidity);
+                input.addEventListener('change', clearPickSizeValidity);
+            });
+
             window.addEventListener('resize', () => {
                 if (!winRateChartCanvas || !latestChartState) {
                     return;
@@ -521,9 +534,7 @@
             runAnalysis();
 
             function runAnalysis() {
-                if (pickSizeInput) {
-                    pickSizeInput.setCustomValidity('');
-                }
+                clearPickSizeValidity();
 
                 showLoading();
 
@@ -534,6 +545,7 @@
                         hideLoading();
                         if (pickSizeInput && validationError.inputMessage) {
                             pickSizeInput.setCustomValidity(validationError.inputMessage);
+                            pickSizeInput.setAttribute('aria-invalid', 'true');
                             pickSizeInput.reportValidity();
                         }
                         displayValidationError(params, validationError);
@@ -601,6 +613,15 @@
                 probabilityList.innerHTML = '';
                 marketInsight.textContent = '입력값을 조정한 뒤 다시 계산해주세요.';
                 clearWinRateChart('입력 조건이 충족되지 않아 그래프를 표시할 수 없습니다.');
+            }
+
+            function clearPickSizeValidity() {
+                if (!pickSizeInput) {
+                    return;
+                }
+                pickSizeInput.setCustomValidity('');
+                pickSizeInput.removeAttribute('aria-invalid');
+                pickSizeInput.checkValidity();
             }
 
             function collectFormData() {
