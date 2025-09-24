@@ -215,6 +215,26 @@
             color: #1f2937;
         }
 
+        .chart-container {
+            position: relative;
+            width: 100%;
+            height: 220px;
+            margin-top: 4px;
+        }
+
+        .chart-canvas {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+
+        .chart-summary {
+            margin-top: 12px;
+            font-size: 13px;
+            color: #475569;
+            line-height: 1.5;
+        }
+
         .result-box ul {
             list-style: none;
             padding: 0;
@@ -385,6 +405,13 @@
                     <h3>낙찰 확률 상위 구간</h3>
                     <div id="probabilityList"></div>
                 </div>
+                <div class="result-box">
+                    <h3>가격별 낙찰 확률</h3>
+                    <div class="chart-container">
+                        <canvas id="winRateChart" class="chart-canvas" width="600" height="220" aria-label="가격별 낙찰 확률 곡선"></canvas>
+                    </div>
+                    <p id="winRateChartSummary" class="chart-summary"></p>
+                </div>
             </div>
 
             <div class="note-card">
@@ -441,6 +468,8 @@
             const resultSummary = document.getElementById('resultSummary');
             const strategyNotes = document.getElementById('strategyNotes');
             const probabilityList = document.getElementById('probabilityList');
+            const winRateChartCanvas = document.getElementById('winRateChart');
+            const winRateChartSummary = document.getElementById('winRateChartSummary');
             const marketInsight = document.getElementById('marketInsight');
             const resetButton = document.getElementById('resetButton');
             const companyCountInput = document.getElementById('companyCount');
@@ -449,6 +478,15 @@
             const rangeRatioInput = document.getElementById('rangeRatio');
             const sampleSizeInput = document.getElementById('sampleSize');
             const pickSizeInput = document.getElementById('pickSize');
+
+            let latestChartState = null;
+
+            window.addEventListener('resize', () => {
+                if (!winRateChartCanvas || !latestChartState) {
+                    return;
+                }
+                renderWinRateChart(winRateChartCanvas, latestChartState.results, latestChartState.params);
+            });
 
             form.addEventListener('submit', event => {
                 event.preventDefault();
@@ -1224,6 +1262,8 @@
             }
 
             function displayResults(params, results) {
+                resultSection.hidden = false;
+
                 if (!results.bids.length) {
                     resultSummary.innerHTML = `
                         <p>설정한 분포로 계산 가능한 투찰 구간이 없습니다. 입력값을 다시 확인해주세요.</p>
@@ -1231,7 +1271,7 @@
                     strategyNotes.innerHTML = '';
                     probabilityList.innerHTML = '';
                     marketInsight.textContent = '경쟁 분포와 업체 수 설정을 조정한 뒤 다시 계산해주세요.';
-                    resultSection.hidden = false;
+                    clearWinRateChart('계산된 구간이 없어 그래프를 표시할 수 없습니다.');
                     return;
                 }
 
@@ -1322,9 +1362,298 @@
                     `;
                 }).join('');
 
+                updateWinRateChart(params, results);
                 marketInsight.textContent = buildMarketInsight(params, results);
+            }
 
-                resultSection.hidden = false;
+            function updateWinRateChart(params, results) {
+                if (!winRateChartCanvas) {
+                    return;
+                }
+
+                if (!results || !results.bids || !results.bids.length) {
+                    clearWinRateChart('그래프를 표시할 데이터가 없습니다.');
+                    return;
+                }
+
+                latestChartState = { params, results };
+                renderWinRateChart(winRateChartCanvas, results, params);
+
+                if (winRateChartSummary) {
+                    winRateChartSummary.textContent = buildWinRateChartSummary(params, results);
+                }
+
+                window.requestAnimationFrame(() => {
+                    if (latestChartState && latestChartState.results === results) {
+                        renderWinRateChart(winRateChartCanvas, results, params);
+                    }
+                });
+            }
+
+            function clearWinRateChart(message) {
+                latestChartState = null;
+
+                if (winRateChartSummary) {
+                    winRateChartSummary.textContent = message || '그래프를 표시할 데이터가 없습니다.';
+                }
+
+                if (!winRateChartCanvas) {
+                    return;
+                }
+
+                const parent = winRateChartCanvas.parentElement;
+                const fallbackWidth = Number.parseFloat(winRateChartCanvas.dataset?.prevWidth) || 600;
+                const fallbackHeight = Number.parseFloat(winRateChartCanvas.dataset?.prevHeight) || 220;
+                const cssWidth = Math.max(320, Math.floor(winRateChartCanvas.clientWidth || (parent ? parent.clientWidth : 0) || fallbackWidth));
+                const cssHeight = Math.max(200, Math.floor(winRateChartCanvas.clientHeight || (parent ? parent.clientHeight : 0) || fallbackHeight));
+                const dpr = window.devicePixelRatio || 1;
+
+                winRateChartCanvas.width = cssWidth * dpr;
+                winRateChartCanvas.height = cssHeight * dpr;
+                const ctx = winRateChartCanvas.getContext('2d');
+                if (!ctx) {
+                    return;
+                }
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, winRateChartCanvas.width, winRateChartCanvas.height);
+                winRateChartCanvas.dataset.prevWidth = String(cssWidth);
+                winRateChartCanvas.dataset.prevHeight = String(cssHeight);
+            }
+
+            function renderWinRateChart(canvas, results, params) {
+                const surface = prepareChartSurface(canvas);
+                if (!surface) {
+                    return;
+                }
+
+                const { ctx, width, height } = surface;
+                const padding = { top: 18, right: 16, bottom: 36, left: 68 };
+                const bids = Array.isArray(results.bids) ? results.bids : [];
+                if (!bids.length) {
+                    return;
+                }
+
+                const xValues = bids.map(bid => bid.price);
+                const yValues = bids.map(bid => bid.probability);
+                const minX = Math.min(...xValues);
+                const maxX = Math.max(...xValues);
+                const maxProbability = Math.max(...yValues);
+                const xRange = Math.max(maxX - minX, 1e-9);
+                const yMax = computeNiceProbabilityCeiling(maxProbability);
+                const chartWidth = Math.max(width - padding.left - padding.right, 10);
+                const chartHeight = Math.max(height - padding.top - padding.bottom, 10);
+
+                const scaleX = value => {
+                    const ratio = (value - minX) / xRange;
+                    return padding.left + clamp01(ratio) * chartWidth;
+                };
+                const scaleY = value => {
+                    const bounded = value <= 0 ? 0 : Math.min(value, yMax);
+                    const ratio = bounded / (yMax || 1);
+                    return padding.top + (1 - ratio) * chartHeight;
+                };
+
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillRect(0, 0, width, height);
+
+                const yTickCount = 4;
+                ctx.font = '12px "Pretendard", "Segoe UI", sans-serif';
+                ctx.fillStyle = '#64748b';
+                ctx.strokeStyle = '#e2e8f0';
+                ctx.lineWidth = 1;
+                for (let idx = 0; idx <= yTickCount; idx++) {
+                    const ratio = idx / yTickCount;
+                    const value = yMax * ratio;
+                    const y = padding.top + (1 - ratio) * chartHeight;
+                    ctx.beginPath();
+                    ctx.moveTo(padding.left, y);
+                    ctx.lineTo(width - padding.right, y);
+                    ctx.strokeStyle = 'rgba(148, 163, 184, 0.25)';
+                    ctx.stroke();
+                    ctx.textAlign = 'right';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillStyle = '#64748b';
+                    ctx.fillText(formatProbabilityLabel(value), padding.left - 10, y);
+                }
+
+                const xTickCount = 4;
+                for (let idx = 0; idx <= xTickCount; idx++) {
+                    const ratio = idx / xTickCount;
+                    const value = minX + xRange * ratio;
+                    const x = scaleX(value);
+                    ctx.beginPath();
+                    ctx.moveTo(x, padding.top);
+                    ctx.lineTo(x, height - padding.bottom);
+                    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+                    ctx.stroke();
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'top';
+                    ctx.fillStyle = '#64748b';
+                    ctx.fillText(formatPriceTick(value), x, height - padding.bottom + 8);
+                }
+
+                ctx.strokeStyle = '#94a3b8';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(padding.left, padding.top);
+                ctx.lineTo(padding.left, height - padding.bottom);
+                ctx.lineTo(width - padding.right, height - padding.bottom);
+                ctx.stroke();
+
+                ctx.beginPath();
+                ctx.moveTo(scaleX(bids[0].price), height - padding.bottom);
+                for (let idx = 0; idx < bids.length; idx++) {
+                    const bid = bids[idx];
+                    ctx.lineTo(scaleX(bid.price), scaleY(bid.probability));
+                }
+                ctx.lineTo(scaleX(bids[bids.length - 1].price), height - padding.bottom);
+                ctx.closePath();
+                const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
+                gradient.addColorStop(0, 'rgba(37, 99, 235, 0.25)');
+                gradient.addColorStop(1, 'rgba(37, 99, 235, 0.05)');
+                ctx.fillStyle = gradient;
+                ctx.fill();
+
+                ctx.beginPath();
+                for (let idx = 0; idx < bids.length; idx++) {
+                    const bid = bids[idx];
+                    const x = scaleX(bid.price);
+                    const y = scaleY(bid.probability);
+                    if (idx === 0) {
+                        ctx.moveTo(x, y);
+                    } else {
+                        ctx.lineTo(x, y);
+                    }
+                }
+                ctx.strokeStyle = '#2563eb';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+
+                if (Number.isInteger(results.bestIndex) && results.bestIndex >= 0 && results.bestIndex < bids.length) {
+                    const bestBid = bids[results.bestIndex];
+                    const x = scaleX(bestBid.price);
+                    const y = scaleY(bestBid.probability);
+                    ctx.fillStyle = '#1d4ed8';
+                    ctx.beginPath();
+                    ctx.arc(x, y, 4, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.font = '12px "Pretendard", "Segoe UI", sans-serif';
+                    ctx.fillStyle = '#1d4ed8';
+                    ctx.textBaseline = 'bottom';
+                    const alignRight = x > width - padding.right - 70;
+                    ctx.textAlign = alignRight ? 'right' : 'left';
+                    const labelX = alignRight ? x - 8 : x + 8;
+                    const labelY = Math.max(padding.top + 12, y - 6);
+                    ctx.fillText(`${bestBid.rate.toFixed(2)}%`, labelX, labelY);
+                }
+            }
+
+            function prepareChartSurface(canvas) {
+                if (!canvas) {
+                    return null;
+                }
+
+                const parent = canvas.parentElement;
+                const fallbackWidth = Number.parseFloat(canvas.dataset?.prevWidth) || 600;
+                const fallbackHeight = Number.parseFloat(canvas.dataset?.prevHeight) || 220;
+                const cssWidth = Math.max(320, Math.floor(canvas.clientWidth || (parent ? parent.clientWidth : 0) || fallbackWidth));
+                const cssHeight = Math.max(200, Math.floor(canvas.clientHeight || (parent ? parent.clientHeight : 0) || fallbackHeight));
+                const dpr = window.devicePixelRatio || 1;
+
+                if (canvas.width !== cssWidth * dpr) {
+                    canvas.width = cssWidth * dpr;
+                }
+                if (canvas.height !== cssHeight * dpr) {
+                    canvas.height = cssHeight * dpr;
+                }
+
+                const ctx = canvas.getContext('2d');
+                if (!ctx) {
+                    return null;
+                }
+
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.scale(dpr, dpr);
+
+                canvas.dataset.prevWidth = String(cssWidth);
+                canvas.dataset.prevHeight = String(cssHeight);
+
+                return { ctx, width: cssWidth, height: cssHeight, dpr };
+            }
+
+            function computeNiceProbabilityCeiling(probability) {
+                const minCeiling = 0.05;
+                if (!(probability > 0)) {
+                    return minCeiling;
+                }
+
+                const paddedPercent = Math.min(100, Math.max(0.01, probability * 100 * 1.1));
+                const exponent = Math.pow(10, Math.floor(Math.log10(paddedPercent)));
+                const fraction = paddedPercent / exponent;
+                let niceFraction;
+                if (fraction <= 1) {
+                    niceFraction = 1;
+                } else if (fraction <= 2) {
+                    niceFraction = 2;
+                } else if (fraction <= 5) {
+                    niceFraction = 5;
+                } else {
+                    niceFraction = 10;
+                }
+                const nicePercent = Math.min(100, niceFraction * exponent);
+                return Math.max(minCeiling, nicePercent / 100);
+            }
+
+            function formatProbabilityLabel(probability) {
+                const percent = probability * 100;
+                if (!Number.isFinite(percent)) {
+                    return '0%';
+                }
+                if (percent >= 10) {
+                    return `${percent.toFixed(0)}%`;
+                }
+                if (percent >= 1) {
+                    return `${percent.toFixed(1)}%`;
+                }
+                return `${percent.toFixed(2)}%`;
+            }
+
+            function formatPriceTick(value) {
+                if (!Number.isFinite(value)) {
+                    return '';
+                }
+                const digits = value >= 100 ? 1 : 2;
+                return `${new Intl.NumberFormat('ko-KR', {
+                    minimumFractionDigits: digits,
+                    maximumFractionDigits: digits
+                }).format(value)}억`;
+            }
+
+            function buildWinRateChartSummary(params, results) {
+                if (!results || !Array.isArray(results.bids) || !results.bids.length) {
+                    return '그래프를 표시할 데이터가 없습니다.';
+                }
+
+                const lowRate = (results.low / params.openPrice) * 100;
+                const highRate = (results.high / params.openPrice) * 100;
+                const rangeText = `${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%`;
+                const amountRange = `${formatAmount(results.low)} ~ ${formatAmount(results.high)}`;
+                const bestBid = Number.isInteger(results.bestIndex) && results.bestIndex >= 0
+                    ? results.bids[results.bestIndex]
+                    : null;
+
+                if (!bestBid) {
+                    return `그래프는 ${rangeText} (${amountRange}) 범위의 투찰률 변화를 보여줍니다.`;
+                }
+
+                const probabilityPercent = bestBid.probability * 100;
+                if (probabilityPercent <= 0) {
+                    return `${rangeText} (${amountRange}) 범위에서는 낙찰 확률이 0% 수준으로 계산됩니다.`;
+                }
+
+                return `${formatAmount(bestBid.price)}(${bestBid.rate.toFixed(2)}%) 구간에서 낙찰 확률이 가장 높게 ${probabilityPercent.toFixed(1)}%입니다. 그래프 범위는 ${rangeText} (${amountRange})입니다.`;
             }
 
             function buildStrategyHint(probability) {
