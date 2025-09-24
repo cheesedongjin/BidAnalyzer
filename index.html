@@ -781,12 +781,17 @@
                 const otherCompanyCount = Math.max(0, (params.companyCount ?? DEFAULTS.companyCount) - 1);
                 const totalCompanyCount = otherCompanyCount + 1;
 
+                const posN = Math.max(0, Math.trunc(Number.isFinite(params.positiveSampleSize) ? params.positiveSampleSize : DEFAULTS.calculation.positiveSampleSize));
+                const negN = Math.max(0, Math.trunc(Number.isFinite(params.negativeSampleSize) ? params.negativeSampleSize : DEFAULTS.calculation.negativeSampleSize));
+
                 const integrationGrid = createIntegrationGrid(low, high, 4096);
+
+                // (+표본, -표본)을 각각 전달
                 const averagePdfValues = integrationGrid.map(value =>
-                    averagePdf(value, low, high, pickSize, distribution, params.sampleSize)
+                    averagePdf(value, low, high, pickSize, posN, negN)
                 );
                 const distributionCdfValues = integrationGrid.map(value =>
-                    averageCdf(value, low, high, pickSize, distribution, params.sampleSize)
+                    averageCdf(value, low, high, pickSize, posN, negN)
                 );
 
                 const results = [];
@@ -797,6 +802,7 @@
                     const ratio = CANDIDATE_GRID_POINTS > 1 ? idx / (CANDIDATE_GRID_POINTS - 1) : 0;
                     const price = low + (gridHigh - low) * ratio;
                     const rate = (price / params.openPrice) * 100;
+
                     const probability = computeWinProbability(
                         price,
                         low,
@@ -806,10 +812,14 @@
                         integrationGrid,
                         averagePdfValues,
                         distributionCdfValues,
-                        pickSize
+                        pickSize,
+                        posN,
+                        negN
                     );
+
                     const thresholdUpper = Math.min(price, high);
-                    const thresholdShare = averageCdf(thresholdUpper, low, high, pickSize, distribution);
+                    // averageCdf 호출 시도 모두 (+표본, -표본) 명시 전달
+                    const thresholdShare = averageCdf(thresholdUpper, low, high, pickSize, posN, negN);
 
                     const competitorShareBelow = clamp01(distribution.cdf(price));
 
@@ -831,8 +841,7 @@
                 }
 
                 const maxPrice = results.reduce((acc, item) => Math.max(acc, item.price), low);
-                const coverage = averageCdf(Math.min(maxPrice, high), low, high, pickSize, distribution);
-
+                const coverage = averageCdf(Math.min(maxPrice, high), low, high, pickSize, posN, negN);
                 const leftoverProbability = Math.max(0, 1 - coverage);
 
                 const topIndices = results
@@ -867,14 +876,26 @@
                 return result;
             }
 
-            function computeWinProbability(price, low, high, otherCompanyCount, distribution, grid, averagePdfValues, distributionCdfValues, pickSize) {
+            function computeWinProbability(
+                price,
+                low,
+                high,
+                otherCompanyCount,
+                distribution,
+                grid,
+                averagePdfValues,
+                distributionCdfValues,
+                pickSize,
+                positiveSampleSize,
+                negativeSampleSize
+            ) {
                 if (price <= low) {
                     return 0;
                 }
 
                 // 경쟁사가 없는 경우 → 임계값이 price 이하에서 형성될 확률
                 if (otherCompanyCount <= 0) {
-                    return averageCdf(price, low, high, pickSize, distribution);
+                    return averageCdf(price, low, high, pickSize, positiveSampleSize, negativeSampleSize);
                 }
 
                 // 경쟁사가 있는 경우 → 적분 기반 계산 유지
@@ -899,8 +920,9 @@
                     const currentIntegrand = integrand(averagePdfValues[idx], distributionCdfValues[idx]);
 
                     if (currentA >= upper) {
-                        const finalPdf = averagePdf(upper, low, high, pickSize, distribution);
-                        const finalCdf = distribution.cdf(upper);
+                        // 여기서도 (+표본, -표본) 명시 전달
+                        const finalPdf = averagePdf(upper, low, high, pickSize, positiveSampleSize, negativeSampleSize);
+                        const finalCdf = averageCdf(upper, low, high, pickSize, positiveSampleSize, negativeSampleSize);
                         const finalIntegrand = integrand(finalPdf, finalCdf);
                         integral += 0.5 * (upper - previousA) * (previousIntegrand + finalIntegrand);
                         break;
