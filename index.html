@@ -475,6 +475,7 @@
             const RATE_MAX = 120;
             const RATE_STD_MIN = 0.01;
             const RATE_STD_MAX = 10;
+            const PICK_SIZE_MAX = 200;
 
             const form = document.getElementById('simulationForm');
             const loadingIndicator = document.getElementById('loadingIndicator');
@@ -520,10 +521,25 @@
             runAnalysis();
 
             function runAnalysis() {
+                if (pickSizeInput) {
+                    pickSizeInput.setCustomValidity('');
+                }
+
                 showLoading();
 
                 window.setTimeout(() => {
                     const params = collectFormData();
+                    const validationError = validateParameters(params);
+                    if (validationError) {
+                        hideLoading();
+                        if (pickSizeInput && validationError.inputMessage) {
+                            pickSizeInput.setCustomValidity(validationError.inputMessage);
+                            pickSizeInput.reportValidity();
+                        }
+                        displayValidationError(params, validationError);
+                        return;
+                    }
+
                     const results = analyzeBids(params);
                     hideLoading();
                     displayResults(params, results);
@@ -545,6 +561,46 @@
                     return;
                 }
                 resultSection.setAttribute('aria-busy', isBusy ? 'true' : 'false');
+            }
+
+            function displayValidationError(params, error) {
+                resultSection.hidden = false;
+                setResultBusyState(false);
+
+                const summaryMessage = (error && error.message)
+                    ? error.message
+                    : '입력값이 올바르지 않아 분석을 실행할 수 없습니다.';
+
+                let detailMessage = error && error.detail ? error.detail : '';
+                if (!detailMessage && params) {
+                    const positiveSampleSize = Number.isFinite(params.positiveSampleSize)
+                        ? Math.max(0, Math.trunc(params.positiveSampleSize))
+                        : 0;
+                    const negativeSampleSize = Number.isFinite(params.negativeSampleSize)
+                        ? Math.max(0, Math.trunc(params.negativeSampleSize))
+                        : 0;
+                    const totalSampleSize = positiveSampleSize + negativeSampleSize;
+                    const pickSize = Number.isFinite(params.pickSize)
+                        ? Math.max(0, Math.trunc(params.pickSize))
+                        : 0;
+                    detailMessage = [
+                        `현재 설정된 +표본 ${positiveSampleSize}개, -표본 ${negativeSampleSize}개(총 ${totalSampleSize}개)`,
+                        `값이 추출 개수 ${pickSize}개보다 작습니다. 값을 조정해주세요.`
+                    ].join(' ');
+                }
+
+                if (!detailMessage) {
+                    detailMessage = '입력값을 조정한 뒤 다시 계산해주세요.';
+                }
+
+                resultSummary.innerHTML = `
+                    <p><strong>${summaryMessage}</strong></p>
+                    <p class="hint">${detailMessage}</p>
+                `;
+                strategyNotes.innerHTML = '';
+                probabilityList.innerHTML = '';
+                marketInsight.textContent = '입력값을 조정한 뒤 다시 계산해주세요.';
+                clearWinRateChart('입력 조건이 충족되지 않아 그래프를 표시할 수 없습니다.');
             }
 
             function collectFormData() {
@@ -570,16 +626,21 @@
                     200
                 );
                 let sampleSize = positiveSampleSize + negativeSampleSize;
-                if (!Number.isFinite(sampleSize) || sampleSize < 1) {
-                    positiveSampleSize = Math.max(0, DEFAULTS.calculation.positiveSampleSize);
-                    negativeSampleSize = Math.max(0, DEFAULTS.calculation.negativeSampleSize);
-                    sampleSize = Math.max(1, positiveSampleSize + negativeSampleSize);
+                if (!Number.isFinite(sampleSize)) {
+                    sampleSize = 0;
                 }
+                sampleSize = Math.max(0, sampleSize);
+
+                if (pickSizeInput) {
+                    const maxPickAttribute = Math.min(Math.max(sampleSize, 1), PICK_SIZE_MAX);
+                    pickSizeInput.setAttribute('max', String(maxPickAttribute));
+                }
+
                 const pickSize = sanitizeInteger(
                     pickSizeInput.value,
                     DEFAULTS.calculation.pickSize,
                     1,
-                    Math.max(sampleSize, 1)
+                    PICK_SIZE_MAX
                 );
                 return {
                     openPrice,
@@ -593,6 +654,38 @@
                     sampleSize,
                     pickSize
                 };
+            }
+
+            function validateParameters(params) {
+                if (!params) {
+                    return {
+                        message: '입력값을 확인할 수 없어 분석을 실행할 수 없습니다.',
+                        detail: '입력 폼을 다시 확인한 뒤 재시도해주세요.'
+                    };
+                }
+
+                const positiveSampleSize = Number.isFinite(params.positiveSampleSize)
+                    ? Math.max(0, Math.trunc(params.positiveSampleSize))
+                    : 0;
+                const negativeSampleSize = Number.isFinite(params.negativeSampleSize)
+                    ? Math.max(0, Math.trunc(params.negativeSampleSize))
+                    : 0;
+                const totalSampleSize = positiveSampleSize + negativeSampleSize;
+                const pickSize = Number.isFinite(params.pickSize) ? Math.max(0, Math.trunc(params.pickSize)) : 0;
+
+                if (totalSampleSize < pickSize) {
+                    const detail = [
+                        `현재 설정된 +표본 ${positiveSampleSize}개와 -표본 ${negativeSampleSize}개의 합(${totalSampleSize}개)이`,
+                        `추출 개수 ${pickSize}개보다 적습니다. 값을 조정해주세요.`
+                    ].join(' ');
+                    return {
+                        message: '표본 크기보다 큰 추출 개수로는 분석을 실행할 수 없습니다.',
+                        detail,
+                        inputMessage: '추출 개수는 +표본과 -표본의 합보다 작거나 같아야 합니다.'
+                    };
+                }
+
+                return null;
             }
 
             function sanitizeNumber(value, fallback, min = -Infinity, max = Infinity) {
