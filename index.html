@@ -335,6 +335,7 @@
                     <option value="uniform">균등분포 (동일 확률)</option>
                     <option value="triangular">삼각분포 (중앙값 쏠림)</option>
                     <option value="truncnormal" selected>절단정규분포 (평균/표준편차)</option>
+                    <option value="mixture">혼합분포 (균등+삼각+절단정규)</option>
                 </select>
                 <small class="field-hint">경쟁 업체 제시가격이 따른다고 가정하는 분포를 선택하세요.</small>
             </div>
@@ -385,7 +386,19 @@
                 distributionParams: {
                     uniform: { minRate: 78.50, maxRate: 81.50 },
                     triangular: { minRate: 78.50, modeRate: 80.00, maxRate: 81.50 },
-                    truncnormal: { meanRate: 80.00, stdRate: 0.45 }
+                    truncnormal: { meanRate: 80.00, stdRate: 0.45 },
+                    mixture: {
+                        uniformWeight: 30.0,
+                        triangularWeight: 30.0,
+                        truncnormalWeight: 40.0,
+                        uniformMinRate: 78.50,
+                        uniformMaxRate: 81.50,
+                        triMinRate: 78.50,
+                        triModeRate: 80.00,
+                        triMaxRate: 81.50,
+                        truncMeanRate: 80.00,
+                        truncStdRate: 0.45
+                    }
                 }
             };
 
@@ -420,7 +433,8 @@
             const distributionParamState = {
                 uniform: { ...DEFAULTS.distributionParams.uniform },
                 triangular: { ...DEFAULTS.distributionParams.triangular },
-                truncnormal: { ...DEFAULTS.distributionParams.truncnormal }
+                truncnormal: { ...DEFAULTS.distributionParams.truncnormal },
+                mixture: { ...DEFAULTS.distributionParams.mixture }
             };
 
             renderDistributionParams(currentDistributionType);
@@ -529,6 +543,7 @@
                 distributionParamState[type] = state;
 
                 let fieldsHtml = '';
+
                 if (type === 'uniform') {
                     fieldsHtml = [
                         createParamInput({
@@ -580,7 +595,7 @@
                             hint: '경쟁 업체 투찰률의 가능한 최댓값'
                         })
                     ].join('');
-                } else {
+                } else if (type === 'truncnormal') {
                     fieldsHtml = [
                         createParamInput({
                             id: 'truncMeanRate',
@@ -596,6 +611,126 @@
                             label: '표준편차 (%)',
                             key: 'stdRate',
                             value: state.stdRate ?? defaults.stdRate,
+                            min: RATE_STD_MIN,
+                            max: RATE_STD_MAX,
+                            hint: '평균 대비 분산(흩어짐) 정도'
+                        })
+                    ].join('');
+                } else if (type === 'mixture') {
+                    fieldsHtml = [
+                        createParamInput({
+                            id: 'mixUniformWeight',
+                            label: '균등 분포 가중치 (%)',
+                            key: 'uniformWeight',
+                            value: state.uniformWeight ?? defaults.uniformWeight,
+                            min: 0,
+                            max: 100,
+                            step: '0.1',
+                            digits: 1,
+                            hint: '세 가중치 합계가 100%에 가깝도록 조정하세요.'
+                        }),
+                        createParamInput({
+                            id: 'mixTriangularWeight',
+                            label: '삼각 분포 가중치 (%)',
+                            key: 'triangularWeight',
+                            value: state.triangularWeight ?? defaults.triangularWeight,
+                            min: 0,
+                            max: 100,
+                            step: '0.1',
+                            digits: 1
+                        }),
+                        createParamInput({
+                            id: 'mixTruncWeight',
+                            label: '절단 정규 분포 가중치 (%)',
+                            key: 'truncnormalWeight',
+                            value: state.truncnormalWeight ?? defaults.truncnormalWeight,
+                            min: 0,
+                            max: 100,
+                            step: '0.1',
+                            digits: 1
+                        }),
+                        createParamInput({
+                            id: 'mixUniformMinRate',
+                            label: '균등 분포 하한 투찰률 (%)',
+                            key: 'uniformMinRate',
+                            value: state.uniformMinRate ?? defaults.uniformMinRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '균등 분포 구성의 가능한 최솟값'
+                        }),
+                        createParamInput({
+                            id: 'mixUniformMaxRate',
+                            label: '균등 분포 상한 투찰률 (%)',
+                            key: 'uniformMaxRate',
+                            value: state.uniformMaxRate ?? defaults.uniformMaxRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '균등 분포 구성의 가능한 최댓값'
+                        }),
+                        createParamInput({
+                            id: 'mixTriMinRate',
+                            label: '삼각 분포 최솟값 투찰률 (%)',
+                            key: 'triMinRate',
+                            value: state.triMinRate ?? defaults.triMinRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '삼각 분포 구성의 최솟값'
+                        }),
+                        createParamInput({
+                            id: 'mixTriModeRate',
+                            label: '삼각 분포 최빈값 투찰률 (%)',
+                            key: 'triModeRate',
+                            value: state.triModeRate ?? defaults.triModeRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '삼각 분포 구성에서 가장 가능성이 높은 값'
+                        }),
+                        createParamInput({
+                            id: 'mixTriMaxRate',
+                            label: '삼각 분포 최댓값 투찰률 (%)',
+                            key: 'triMaxRate',
+                            value: state.triMaxRate ?? defaults.triMaxRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '삼각 분포 구성의 최댓값'
+                        }),
+                        createParamInput({
+                            id: 'mixTruncMeanRate',
+                            label: '절단 정규 평균 투찰률 (%)',
+                            key: 'truncMeanRate',
+                            value: state.truncMeanRate ?? defaults.truncMeanRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '절단 정규 구성의 평균 투찰률'
+                        }),
+                        createParamInput({
+                            id: 'mixTruncStdRate',
+                            label: '절단 정규 표준편차 (%)',
+                            key: 'truncStdRate',
+                            value: state.truncStdRate ?? defaults.truncStdRate,
+                            min: RATE_STD_MIN,
+                            max: RATE_STD_MAX,
+                            hint: '절단 정규 구성의 표준편차'
+                        })
+                    ].join('');
+                } else {
+                    const fallbackDefaults = DEFAULTS.distributionParams.truncnormal;
+                    const fallbackState = distributionParamState.truncnormal ?? { ...fallbackDefaults };
+                    fieldsHtml = [
+                        createParamInput({
+                            id: 'truncMeanRate',
+                            label: '평균 투찰률 (%)',
+                            key: 'meanRate',
+                            value: fallbackState.meanRate ?? fallbackDefaults.meanRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '경쟁 업체의 평균 투찰 수준'
+                        }),
+                        createParamInput({
+                            id: 'truncStdRate',
+                            label: '표준편차 (%)',
+                            key: 'stdRate',
+                            value: fallbackState.stdRate ?? fallbackDefaults.stdRate,
                             min: RATE_STD_MIN,
                             max: RATE_STD_MAX,
                             hint: '평균 대비 분산(흩어짐) 정도'
@@ -937,11 +1072,156 @@
                     };
                 };
 
+                const createMixtureFromRates = () => {
+                    const mixDefaults = defaults.mixture ?? {};
+
+                    let uniformWeight = sanitizeNumber(settings.uniformWeight, mixDefaults.uniformWeight, 0, 100);
+                    let triangularWeight = sanitizeNumber(settings.triangularWeight, mixDefaults.triangularWeight, 0, 100);
+                    let truncnormalWeight = sanitizeNumber(settings.truncnormalWeight, mixDefaults.truncnormalWeight, 0, 100);
+
+                    if (!Number.isFinite(uniformWeight)) uniformWeight = Number.isFinite(mixDefaults.uniformWeight) ? mixDefaults.uniformWeight : 0;
+                    if (!Number.isFinite(triangularWeight)) triangularWeight = Number.isFinite(mixDefaults.triangularWeight) ? mixDefaults.triangularWeight : 0;
+                    if (!Number.isFinite(truncnormalWeight)) truncnormalWeight = Number.isFinite(mixDefaults.truncnormalWeight) ? mixDefaults.truncnormalWeight : 0;
+
+                    const weights = {
+                        uniform: Math.max(0, uniformWeight),
+                        triangular: Math.max(0, triangularWeight),
+                        truncnormal: Math.max(0, truncnormalWeight)
+                    };
+
+                    let totalWeight = weights.uniform + weights.triangular + weights.truncnormal;
+                    if (totalWeight <= 1e-6) {
+                        weights.uniform = Math.max(0, Number.isFinite(mixDefaults.uniformWeight) ? mixDefaults.uniformWeight : 1);
+                        weights.triangular = Math.max(0, Number.isFinite(mixDefaults.triangularWeight) ? mixDefaults.triangularWeight : 0);
+                        weights.truncnormal = Math.max(0, Number.isFinite(mixDefaults.truncnormalWeight) ? mixDefaults.truncnormalWeight : 0);
+                        totalWeight = weights.uniform + weights.triangular + weights.truncnormal;
+                    }
+                    if (totalWeight <= 1e-6) {
+                        weights.uniform = 1;
+                        weights.triangular = 0;
+                        weights.truncnormal = 0;
+                        totalWeight = 1;
+                    }
+
+                    const normalizeWeight = value => (totalWeight > 0 ? value / totalWeight : 0);
+
+                    let uniformMinRate = sanitizeNumber(settings.uniformMinRate, mixDefaults.uniformMinRate, RATE_MIN, RATE_MAX);
+                    let uniformMaxRate = sanitizeNumber(settings.uniformMaxRate, mixDefaults.uniformMaxRate, RATE_MIN, RATE_MAX);
+                    if (!Number.isFinite(uniformMinRate)) uniformMinRate = Number.isFinite(mixDefaults.uniformMinRate) ? mixDefaults.uniformMinRate : RATE_MIN;
+                    if (!Number.isFinite(uniformMaxRate)) uniformMaxRate = Number.isFinite(mixDefaults.uniformMaxRate) ? mixDefaults.uniformMaxRate : RATE_MAX;
+                    if (uniformMinRate > uniformMaxRate) {
+                        [uniformMinRate, uniformMaxRate] = [uniformMaxRate, uniformMinRate];
+                    }
+                    if (Math.abs(uniformMaxRate - uniformMinRate) < 1e-6) {
+                        uniformMaxRate = uniformMinRate + 0.1;
+                    }
+                    const uniformDistribution = createUniformDistribution(toPrice(uniformMinRate), toPrice(uniformMaxRate));
+                    const uniformSummary = `하한 ${uniformMinRate.toFixed(2)}% ~ 상한 ${uniformMaxRate.toFixed(2)}%`;
+
+                    let triMinRate = sanitizeNumber(settings.triMinRate, mixDefaults.triMinRate, RATE_MIN, RATE_MAX);
+                    let triModeRate = sanitizeNumber(settings.triModeRate, mixDefaults.triModeRate, RATE_MIN, RATE_MAX);
+                    let triMaxRate = sanitizeNumber(settings.triMaxRate, mixDefaults.triMaxRate, RATE_MIN, RATE_MAX);
+                    if (!Number.isFinite(triMinRate)) triMinRate = Number.isFinite(mixDefaults.triMinRate) ? mixDefaults.triMinRate : RATE_MIN;
+                    if (!Number.isFinite(triModeRate)) triModeRate = Number.isFinite(mixDefaults.triModeRate) ? mixDefaults.triModeRate : triMinRate;
+                    if (!Number.isFinite(triMaxRate)) triMaxRate = Number.isFinite(mixDefaults.triMaxRate) ? mixDefaults.triMaxRate : RATE_MAX;
+                    if (triMinRate > triMaxRate) {
+                        [triMinRate, triMaxRate] = [triMaxRate, triMinRate];
+                    }
+                    if (Math.abs(triMaxRate - triMinRate) < 1e-6) {
+                        triMaxRate = triMinRate + 0.1;
+                    }
+                    triModeRate = clamp(triModeRate, triMinRate, triMaxRate);
+                    const triangularDistribution = createTriangularDistribution(toPrice(triMinRate), toPrice(triModeRate), toPrice(triMaxRate));
+                    const triangularSummary = `최솟값 ${triMinRate.toFixed(2)}% / 최빈값 ${triModeRate.toFixed(2)}% / 최댓값 ${triMaxRate.toFixed(2)}%`;
+
+                    let truncMeanRate = sanitizeNumber(settings.truncMeanRate, mixDefaults.truncMeanRate, RATE_MIN, RATE_MAX);
+                    let truncStdRate = sanitizeNumber(settings.truncStdRate, mixDefaults.truncStdRate, RATE_STD_MIN, RATE_STD_MAX);
+                    if (!Number.isFinite(truncMeanRate)) {
+                        const fallbackMean = defaults.truncnormal?.meanRate;
+                        truncMeanRate = Number.isFinite(fallbackMean) ? fallbackMean : (mixDefaults.truncMeanRate ?? RATE_MIN);
+                    }
+                    if (!Number.isFinite(truncStdRate) || truncStdRate <= 0) {
+                        const fallbackStd = defaults.truncnormal?.stdRate;
+                        truncStdRate = Number.isFinite(fallbackStd) ? fallbackStd : (mixDefaults.truncStdRate ?? 1);
+                    }
+                    const truncMu = toPrice(truncMeanRate);
+                    const truncSigma = Math.max(openPrice * (truncStdRate / 100), (high - low) / 200, Math.abs(truncMu) * 1e-6);
+                    const truncDistribution = buildTruncatedNormalDistribution(low, high, truncMu, truncSigma);
+                    const truncSummary = `평균 ${truncMeanRate.toFixed(2)}%, 표준편차 ${truncStdRate.toFixed(2)}%`;
+
+                    const components = [];
+                    const uniformWeightNormalized = normalizeWeight(weights.uniform);
+                    const triangularWeightNormalized = normalizeWeight(weights.triangular);
+                    const truncWeightNormalized = normalizeWeight(weights.truncnormal);
+
+                    if (uniformWeightNormalized > 0) {
+                        components.push({
+                            key: 'uniform',
+                            label: '균등 분포',
+                            weight: uniformWeightNormalized,
+                            weightPercent: uniformWeightNormalized * 100,
+                            summary: uniformSummary,
+                            distribution: uniformDistribution
+                        });
+                    }
+                    if (triangularWeightNormalized > 0) {
+                        components.push({
+                            key: 'triangular',
+                            label: '삼각 분포',
+                            weight: triangularWeightNormalized,
+                            weightPercent: triangularWeightNormalized * 100,
+                            summary: triangularSummary,
+                            distribution: triangularDistribution
+                        });
+                    }
+                    if (truncWeightNormalized > 0) {
+                        components.push({
+                            key: 'truncnormal',
+                            label: '절단 정규 분포',
+                            weight: truncWeightNormalized,
+                            weightPercent: truncWeightNormalized * 100,
+                            summary: truncSummary,
+                            distribution: truncDistribution
+                        });
+                    }
+
+                    const mixtureBase = createMixtureDistribution(components);
+                    if (!mixtureBase) {
+                        return createTruncNormalFromRates();
+                    }
+
+                    const weightSummary = components.length
+                        ? components.map(component => `${component.label} ${component.weightPercent.toFixed(1)}%`).join(', ')
+                        : '';
+                    const detailSummary = components.length
+                        ? components.map(component => {
+                              const ratio = component.weightPercent.toFixed(1);
+                              return component.summary ? `${component.label} ${ratio}% (${component.summary})` : `${component.label} ${ratio}%`;
+                          }).join(' · ')
+                        : '';
+                    const description = weightSummary ? `가중치 기준: ${weightSummary}` : '가중치 정보를 확인할 수 없습니다.';
+
+                    const enriched = enrichDistribution(mixtureBase, '혼합 분포', openPrice, description);
+                    enriched.components = components.map(component => ({
+                        key: component.key,
+                        label: component.label,
+                        weight: component.weight,
+                        weightPercent: component.weightPercent,
+                        summary: component.summary
+                    }));
+                    enriched.componentDetailSummary = detailSummary;
+                    enriched.weightSummary = weightSummary;
+                    enriched.isMixture = true;
+                    return enriched;
+                };
+
                 switch (type) {
                     case 'uniform':
                         return createUniformFromRates();
                     case 'triangular':
                         return createTriangularFromRates();
+                    case 'mixture':
+                        return createMixtureFromRates();
                     case 'truncnormal':
                     default:
                         return createTruncNormalFromRates();
@@ -1096,6 +1376,61 @@
                 };
             }
 
+            function createMixtureDistribution(components) {
+                if (!Array.isArray(components) || !components.length) {
+                    return null;
+                }
+
+                const valid = components
+                    .filter(component =>
+                        component &&
+                        typeof component.weight === 'number' &&
+                        component.weight > 0 &&
+                        component.distribution &&
+                        typeof component.distribution.pdf === 'function' &&
+                        typeof component.distribution.cdf === 'function'
+                    );
+
+                if (!valid.length) {
+                    return null;
+                }
+
+                const totalWeight = valid.reduce((sum, component) => sum + component.weight, 0);
+                if (totalWeight <= 0) {
+                    return null;
+                }
+
+                const normalized = valid.map(component => ({
+                    weight: component.weight / totalWeight,
+                    distribution: component.distribution
+                }));
+
+                let mu = 0;
+                let secondMoment = 0;
+                normalized.forEach(component => {
+                    const weight = component.weight;
+                    const compMu = Number.isFinite(component.distribution.mu) ? component.distribution.mu : 0;
+                    const compSigma = Number.isFinite(component.distribution.sigma) ? component.distribution.sigma : 0;
+                    mu += weight * compMu;
+                    secondMoment += weight * (compSigma * compSigma + compMu * compMu);
+                });
+
+                const variance = Math.max(0, secondMoment - mu * mu);
+                const sigma = Math.sqrt(variance);
+
+                return {
+                    type: '혼합',
+                    mu,
+                    sigma,
+                    pdf(value) {
+                        return normalized.reduce((sum, component) => sum + component.weight * component.distribution.pdf(value), 0);
+                    },
+                    cdf(value) {
+                        return normalized.reduce((sum, component) => sum + component.weight * component.distribution.cdf(value), 0);
+                    }
+                };
+            }
+
             function standardNormalPdf(x) {
                 return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
             }
@@ -1164,6 +1499,28 @@
                     const dist = results.distribution;
                     notes.push(`경쟁 분포 가정: <strong>${dist.type}</strong> (${dist.description})`);
                     notes.push(`분포 평균/표준편차: <strong>${formatAmount(dist.mu)}</strong> / <strong>${formatAmount(dist.sigma)}</strong> (투찰률 ${dist.rateMu.toFixed(2)}% / ${dist.rateSigma.toFixed(2)}%)`);
+                    if (dist.isMixture) {
+                        let componentNote = '';
+                        if (Array.isArray(dist.components) && dist.components.length) {
+                            componentNote = dist.components
+                                .map(component => {
+                                    const ratioSource = Number.isFinite(component.weightPercent)
+                                        ? component.weightPercent
+                                        : Number.isFinite(component.weight)
+                                            ? component.weight * 100
+                                            : 0;
+                                    const ratioText = Number.isFinite(ratioSource) ? ratioSource.toFixed(1) : '0.0';
+                                    const detail = component.summary ? ` (${component.summary})` : '';
+                                    return `${component.label} ${ratioText}%${detail}`;
+                                })
+                                .join(' · ');
+                        } else if (typeof dist.componentDetailSummary === 'string' && dist.componentDetailSummary) {
+                            componentNote = dist.componentDetailSummary;
+                        }
+                        if (componentNote) {
+                            notes.push(`혼합 구성: ${componentNote}`);
+                        }
+                    }
                 }
 
                 notes.push(`분석 방법: <strong>${SAMPLE_SIZE}개 중 ${PICK_SIZE}개 평균분포 + 타업체 연속분포 적분</strong>`);
@@ -1236,6 +1593,28 @@
                 if (results.distribution) {
                     const dist = results.distribution;
                     insight += `경쟁 업체 제시가격 분포는 ${dist.type}(${dist.description})으로 가정했으며 평균 투찰률은 ${dist.rateMu.toFixed(2)}%, 표준편차는 ${dist.rateSigma.toFixed(2)}% 수준입니다. `;
+                    if (dist.isMixture) {
+                        let breakdownText = '';
+                        if (Array.isArray(dist.components) && dist.components.length) {
+                            breakdownText = dist.components
+                                .map(component => {
+                                    const ratioSource = Number.isFinite(component.weightPercent)
+                                        ? component.weightPercent
+                                        : Number.isFinite(component.weight)
+                                            ? component.weight * 100
+                                            : 0;
+                                    const ratioText = Number.isFinite(ratioSource) ? ratioSource.toFixed(1) : '0.0';
+                                    const detail = component.summary ? ` (${component.summary})` : '';
+                                    return `${component.label} ${ratioText}%${detail}`;
+                                })
+                                .join(', ');
+                        } else if (typeof dist.componentDetailSummary === 'string' && dist.componentDetailSummary) {
+                            breakdownText = dist.componentDetailSummary.replace(/·/g, ',');
+                        }
+                        if (breakdownText) {
+                            insight += ` 혼합 구성은 ${breakdownText}입니다.`;
+                        }
+                    }
                 }
 
                 if (bestBid.probability <= 0) {
