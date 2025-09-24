@@ -936,16 +936,6 @@
                 const otherCompanyCount = Math.max(0, (params.companyCount ?? DEFAULTS.companyCount) - 1);
                 const totalCompanyCount = otherCompanyCount + 1;
 
-                const integrationGrid = createIntegrationGrid(low, high, 4096);
-
-                // (+표본, -표본)을 각각 전달
-                const averagePdfValues = integrationGrid.map(value =>
-                    averagePdf(value, low, high, basePrice, pickSize, posN, negN)
-                );
-                const distributionCdfValues = integrationGrid.map(value =>
-                    averageCdf(value, low, high, basePrice, pickSize, posN, negN)
-                );
-
                 const results = [];
                 let bestIndex = -1;
                 let maxProbability = -Infinity;
@@ -962,9 +952,6 @@
                         basePrice,
                         otherCompanyCount,
                         distribution,
-                        integrationGrid,
-                        averagePdfValues,
-                        distributionCdfValues,
                         pickSize,
                         posN,
                         negN
@@ -1035,58 +1022,47 @@
                 basePrice,
                 otherCompanyCount,
                 distribution,
-                grid,
-                averagePdfValues,
-                distributionCdfValues,
                 pickSize,
                 positiveSampleSize,
                 negativeSampleSize
             ) {
-                if (price <= low) {
+                if (price < low) {
                     return 0;
                 }
 
-                // 경쟁사가 없는 경우 → 임계값이 price 이하에서 형성될 확률
+                const upper = Math.min(price, high);
+                const thresholdPassProbability = averageCdf(
+                    upper,
+                    low,
+                    high,
+                    basePrice,
+                    pickSize,
+                    positiveSampleSize,
+                    negativeSampleSize
+                );
+
+                if (thresholdPassProbability <= 0) {
+                    return 0;
+                }
+
                 if (otherCompanyCount <= 0) {
-                    return averageCdf(price, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize);
+                    return clamp01(thresholdPassProbability);
                 }
 
-                // 경쟁사가 있는 경우 → 적분 기반 계산 유지
-                const upper = price;
-                if (upper <= low) return 0;
+                const competitorBelowLow = clamp01(distribution.cdf(low));
+                const competitorAtPrice = clamp01(distribution.cdf(Math.max(price, low)));
 
-                const gp = clamp01(distribution.cdf(price));
-                const exponent = otherCompanyCount;
+                const singleCompetitorFailProbability = clamp01(
+                    competitorBelowLow + (1 - competitorAtPrice)
+                );
 
-                const integrand = (pdfValue, cdfValue) => {
-                    if (pdfValue <= 0) return 0;
-                    const base = clamp01(cdfValue + 1 - gp);
-                    return pdfValue * Math.pow(base, exponent);
-                };
-
-                let integral = 0;
-                let previousA = grid[0];
-                let previousIntegrand = integrand(averagePdfValues[0], distributionCdfValues[0]);
-
-                for (let idx = 1; idx < grid.length; idx++) {
-                    const currentA = grid[idx];
-                    const currentIntegrand = integrand(averagePdfValues[idx], distributionCdfValues[idx]);
-
-                    if (currentA >= upper) {
-                        // 여기서도 (+표본, -표본) 명시 전달
-                        const finalPdf = averagePdf(upper, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize);
-                        const finalCdf = averageCdf(upper, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize);
-                        const finalIntegrand = integrand(finalPdf, finalCdf);
-                        integral += 0.5 * (upper - previousA) * (previousIntegrand + finalIntegrand);
-                        break;
-                    } else {
-                        integral += 0.5 * (currentA - previousA) * (previousIntegrand + currentIntegrand);
-                        previousA = currentA;
-                        previousIntegrand = currentIntegrand;
-                    }
+                if (singleCompetitorFailProbability <= 0) {
+                    return 0;
                 }
 
-                return clamp01(integral);
+                const competitorsAllFail = Math.pow(singleCompetitorFailProbability, otherCompanyCount);
+
+                return clamp01(thresholdPassProbability * competitorsAllFail);
             }
 
             function averagePdf(value, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize) {
