@@ -349,8 +349,13 @@
 
         <form id="simulationForm" class="card input-card">
             <div class="field">
-                <label for="openPrice">공개가격 (억원)</label>
-                <input type="number" id="openPrice" name="openPrice" min="1" step="0.1" value="100">
+                <label for="openPrice">예비가격 기초금액 (억원)</label>
+                <input type="number" id="openPrice" name="openPrice" min="1" step="0.000000001" value="100">
+            </div>
+            <div class="field">
+                <label for="aValue">a값 (억원)</label>
+                <input type="number" id="aValue" name="aValue" min="0" step="0.000000001" value="0">
+                <small class="field-hint">예비가격 기초금액에서 차감할 상수입니다. 계산은 차감된 금액으로 수행하며 결과에는 a값이 다시 더해집니다.</small>
             </div>
             <div class="field">
                 <label for="companyCount">참여 업체 수</label>
@@ -371,7 +376,7 @@
                 <div class="field">
                     <label for="baseRate">기준 투찰률 (소수)</label>
                     <input type="number" id="baseRate" name="baseRate" min="0.3" max="1.2" step="0.00001" value="0.79995">
-                    <small class="field-hint">공개가격에 곱해 기준가격을 계산할 때 사용하는 비율입니다.</small>
+                    <small class="field-hint">예비가격 기초금액에 곱해 기준가격을 계산할 때 사용하는 비율입니다.</small>
                 </div>
                 <div class="field">
                     <label for="rangeRatio">임계값 범위 비율 (소수)</label>
@@ -442,6 +447,7 @@
         (() => {
             const DEFAULTS = {
                 openPrice: 100,
+                aValue: 0,
                 companyCount: 8,
                 distributionType: 'mixture',
                 distributionParams: {
@@ -487,6 +493,8 @@
             const winRateChartSummary = document.getElementById('winRateChartSummary');
             const marketInsight = document.getElementById('marketInsight');
             const resetButton = document.getElementById('resetButton');
+            const openPriceInput = document.getElementById('openPrice');
+            const aValueInput = document.getElementById('aValue');
             const companyCountInput = document.getElementById('companyCount');
             const distributionTypeSelect = document.getElementById('distributionType');
             const baseRateInput = document.getElementById('baseRate');
@@ -625,7 +633,18 @@
             }
 
             function collectFormData() {
-                const openPrice = sanitizeNumber(document.getElementById('openPrice').value, DEFAULTS.openPrice, 1, 10000);
+                const rawOpenPrice = sanitizeNumber(openPriceInput?.value, DEFAULTS.openPrice, 1, 10000);
+                const defaultShift = Number.isFinite(DEFAULTS.aValue) ? DEFAULTS.aValue : 0;
+                let aValue = sanitizeNumber(aValueInput?.value, defaultShift, 0, rawOpenPrice);
+                const minEffectivePrice = 1e-9;
+                let effectiveOpenPrice = rawOpenPrice - aValue;
+                if (!Number.isFinite(effectiveOpenPrice)) {
+                    effectiveOpenPrice = rawOpenPrice;
+                }
+                if (effectiveOpenPrice < minEffectivePrice) {
+                    effectiveOpenPrice = minEffectivePrice;
+                    aValue = Math.max(0, rawOpenPrice - effectiveOpenPrice);
+                }
                 const companyCount = sanitizeInteger(companyCountInput.value, DEFAULTS.companyCount, 1, 60);
                 let distributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
                 if (!Object.prototype.hasOwnProperty.call(DEFAULTS.distributionParams, distributionType)) {
@@ -664,7 +683,9 @@
                     PICK_SIZE_MAX
                 );
                 return {
-                    openPrice,
+                    openPrice: effectiveOpenPrice,
+                    nominalOpenPrice: rawOpenPrice,
+                    aValue,
                     companyCount,
                     distributionType,
                     distributionParams,
@@ -1465,8 +1486,9 @@
                 }
 
                 const bestBid = results.bestIndex >= 0 ? results.bids[results.bestIndex] : null;
+                const shift = getAmountShift(params);
                 const probabilityPercent = bestBid ? bestBid.probability * 100 : 0;
-                const expectedAmount = bestBid ? bestBid.price : 0;
+                const expectedAmount = bestBid ? bestBid.price + shift : shift;
 
                 resultSummary.innerHTML = `
                     <p><strong>${bestBid.rate.toFixed(2)}%</strong> 투찰 시 낙찰 확률은 <strong>${probabilityPercent.toFixed(1)}%</strong>입니다.</p>
@@ -1481,9 +1503,9 @@
                 const lowRate = (results.low / params.openPrice) * 100;
                 const highRate = (results.high / params.openPrice) * 100;
                 const notes = [
-                    `기준가격: <strong>${formatAmount(results.basePrice)}</strong>`,
-                    `임계값 추정 범위 (±${rangePercent}%): <strong>${formatAmount(results.low)} ~ ${formatAmount(results.high)}</strong> (${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%)`,
-                    `표본 평균 기대값: <strong>${formatAmount(results.mean)}</strong>`,
+                    `기준가격: <strong>${formatAmount(results.basePrice + shift)}</strong>`,
+                    `임계값 추정 범위 (±${rangePercent}%): <strong>${formatAmount(results.low + shift)} ~ ${formatAmount(results.high + shift)}</strong> (${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%)`,
+                    `표본 평균 기대값: <strong>${formatAmount(results.mean + shift)}</strong>`,
                     `표본 평균 분포 표준편차: <strong>${formatAmount(results.stdDev)}</strong>`,
                     `총 참여 업체 수: <strong>${results.totalCompanyCount}</strong>곳`,
                     `경쟁 업체 수(우리 제외): <strong>${results.otherCompanyCount}</strong>곳`
@@ -1492,7 +1514,7 @@
                 if (results.distribution) {
                     const dist = results.distribution;
                     notes.push(`경쟁 분포 가정: <strong>${dist.type}</strong> (${dist.description})`);
-                    notes.push(`분포 평균/표준편차: <strong>${formatAmount(dist.mu)}</strong> / <strong>${formatAmount(dist.sigma)}</strong> (투찰률 ${dist.rateMu.toFixed(2)}% / ${dist.rateSigma.toFixed(2)}%)`);
+                    notes.push(`분포 평균/표준편차: <strong>${formatAmount(dist.mu + shift)}</strong> / <strong>${formatAmount(dist.sigma)}</strong> (투찰률 ${dist.rateMu.toFixed(2)}% / ${dist.rateSigma.toFixed(2)}%)`);
                     if (dist.isMixture) {
                         let componentNote = '';
                         if (Array.isArray(dist.components) && dist.components.length) {
@@ -1551,7 +1573,7 @@
                     const probability = bid.probability * 100;
                     const fillWidth = Math.max(3, Math.min(100, probability));
                     const tooltip = [
-                        `제시금액 ${formatAmount(bid.price)}`,
+                        `제시금액 ${formatAmount(bid.price + shift)}`,
                         `임계값 커버 ${(bid.thresholdShare * 100).toFixed(1)}%`,
                         `타 업체 ≤ ${bid.rate.toFixed(2)}% 비중 ${(bid.competitorShareBelow * 100).toFixed(1)}%`
                     ].join(' | ');
@@ -1637,10 +1659,14 @@
                     return;
                 }
 
-                const xValues = bids.map(bid => bid.price);
+                const shift = getAmountShift(params);
+                const xValues = bids.map(bid => bid.price + shift);
                 const yValues = bids.map(bid => bid.probability);
                 const minX = Math.min(...xValues);
-                const maxX = Math.max(...xValues, params.openPrice);
+                const openPriceReference = Number.isFinite(params?.nominalOpenPrice)
+                    ? params.nominalOpenPrice
+                    : params.openPrice + shift;
+                const maxX = Math.max(...xValues, openPriceReference);
                 const maxProbability = Math.max(...yValues);
                 const xRange = Math.max(maxX - minX, 1e-9);
                 const yMax = computeNiceProbabilityCeiling(maxProbability);
@@ -1705,17 +1731,17 @@
                 ctx.stroke();
 
                 ctx.beginPath();
-                ctx.moveTo(scaleX(bids[0].price), height - padding.bottom);
+                ctx.moveTo(scaleX(bids[0].price + shift), height - padding.bottom);
                 for (let idx = 0; idx < bids.length; idx++) {
                     const bid = bids[idx];
-                    ctx.lineTo(scaleX(bid.price), scaleY(bid.probability));
+                    ctx.lineTo(scaleX(bid.price + shift), scaleY(bid.probability));
                 }
                 // 마지막 확률이 0보다 크다면, 그 다음에 X축과 수직으로 닫기
                 const lastBid = bids[bids.length - 1];
                 if (lastBid.probability > 0) {
-                    ctx.lineTo(scaleX(lastBid.price), height - padding.bottom);
+                    ctx.lineTo(scaleX(lastBid.price + shift), height - padding.bottom);
                 }
-                ctx.lineTo(scaleX(bids[0].price), height - padding.bottom);
+                ctx.lineTo(scaleX(bids[0].price + shift), height - padding.bottom);
                 ctx.closePath();
 
                 const gradient = ctx.createLinearGradient(0, padding.top, 0, height - padding.bottom);
@@ -1727,7 +1753,7 @@
                 ctx.beginPath();
                 for (let idx = 0; idx < bids.length; idx++) {
                     const bid = bids[idx];
-                    const x = scaleX(bid.price);
+                    const x = scaleX(bid.price + shift);
                     const y = scaleY(bid.probability);
                     if (idx === 0) {
                         ctx.moveTo(x, y);
@@ -1741,7 +1767,7 @@
 
                 if (Number.isInteger(results.bestIndex) && results.bestIndex >= 0 && results.bestIndex < bids.length) {
                     const bestBid = bids[results.bestIndex];
-                    const x = scaleX(bestBid.price);
+                    const x = scaleX(bestBid.price + shift);
                     const y = scaleY(bestBid.probability);
                     ctx.fillStyle = '#1d4ed8';
                     ctx.beginPath();
@@ -1846,10 +1872,11 @@
                     return '그래프를 표시할 데이터가 없습니다.';
                 }
 
+                const shift = getAmountShift(params);
                 const lowRate = (results.low / params.openPrice) * 100;
                 const highRate = (results.high / params.openPrice) * 100;
                 const rangeText = `${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%`;
-                const amountRange = `${formatAmount(results.low)} ~ ${formatAmount(results.high)}`;
+                const amountRange = `${formatAmount(results.low + shift)} ~ ${formatAmount(results.high + shift)}`;
                 const bestBid = Number.isInteger(results.bestIndex) && results.bestIndex >= 0
                     ? results.bids[results.bestIndex]
                     : null;
@@ -1863,7 +1890,7 @@
                     return `${rangeText} (${amountRange}) 범위에서는 낙찰 확률이 0% 수준으로 계산됩니다.`;
                 }
 
-                return `${formatAmount(bestBid.price)}(${bestBid.rate.toFixed(2)}%) 구간에서 낙찰 확률이 가장 높게 ${probabilityPercent.toFixed(1)}%입니다. 그래프 범위는 ${rangeText} (${amountRange})입니다.\n
+                return `${formatAmount(bestBid.price + shift)}(${bestBid.rate.toFixed(2)}%) 구간에서 낙찰 확률이 가장 높게 ${probabilityPercent.toFixed(1)}%입니다. 그래프 범위는 ${rangeText} (${amountRange})입니다.\n
                 참고: 그래프의 후반부에 나타날 수 있는 평평한 구간은 경쟁사가 모두 임계값을 넘기지 못해 낙찰자가 높은 금액에서 발생하는 상황으로, 경쟁사들이 그 가격대에 금액을 제시할 확률이 거의 없어 경쟁사의 제시 가격에 상관 없이 일정하게 낮은 낙찰 확률이 유지될 수 있다는 것을 의미합니다.`;
             }
 
@@ -1890,13 +1917,14 @@
                     return '계산된 투찰 구간이 없어 추가 해석을 제공할 수 없습니다.';
                 }
 
-                const rangeText = `${formatAmount(results.low)} ~ ${formatAmount(results.high)}`;
+                const shift = getAmountShift(params);
+                const rangeText = `${formatAmount(results.low + shift)} ~ ${formatAmount(results.high + shift)}`;
                 const lowRate = (results.low / params.openPrice) * 100;
                 const highRate = (results.high / params.openPrice) * 100;
                 const totalCount = results.totalCompanyCount ?? (results.otherCompanyCount + 1);
                 const competitorCount = results.otherCompanyCount;
 
-                let insight = `임계값 A는 ${rangeText} (${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%) 범위에서 형성되며 평균은 ${formatAmount(results.mean)}입니다. `;
+                let insight = `임계값 A는 ${rangeText} (${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%) 범위에서 형성되며 평균은 ${formatAmount(results.mean + shift)}입니다. `;
                 insight += `총 참여 업체 수는 ${totalCount}곳(경쟁 ${competitorCount}곳)으로 설정했습니다. `;
 
                 if (results.distribution) {
@@ -1928,23 +1956,31 @@
 
                 if (bestBid.probability <= 0) {
                     const highestBid = results.bids[results.bids.length - 1];
-                    const cap = Math.min(results.high, highestBid.price);
-                    insight += `현재 설정에서는 임계값을 넘는 전략이 없어 낙찰이 어렵습니다. ${formatAmount(cap)} 이상의 금액도 검토하세요.`;
+                    const capRaw = Math.min(results.high, highestBid.price);
+                    insight += `현재 설정에서는 임계값을 넘는 전략이 없어 낙찰이 어렵습니다. ${formatAmount(capRaw + shift)} 이상의 금액도 검토하세요.`;
                     return insight;
                 }
 
-                insight += `${bestBid.rate.toFixed(2)}% (${formatAmount(bestBid.price)}) 투찰 시 낙찰 확률은 ${(bestBid.probability * 100).toFixed(1)}%입니다. `;
-                insight += `임계값이 ${formatAmount(bestBid.thresholdUpper)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 경쟁 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다.`;
+                insight += `${bestBid.rate.toFixed(2)}% (${formatAmount(bestBid.price + shift)}) 투찰 시 낙찰 확률은 ${(bestBid.probability * 100).toFixed(1)}%입니다. `;
+                insight += `임계값이 ${formatAmount(bestBid.thresholdUpper + shift)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 경쟁 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다.`;
 
                 if (results.leftoverProbability > 1e-6) {
-                    const cap = Math.min(results.high, results.maxPrice);
-                    insight += ` 또한 임계값이 ${formatAmount(cap)} 이상일 경우 낙찰자가 정해지지 않을 확률이 ${(results.leftoverProbability * 100).toFixed(1)}% 존재합니다.`;
+                    const capRaw = Math.min(results.high, results.maxPrice);
+                    insight += ` 또한 임계값이 ${formatAmount(capRaw + shift)} 이상일 경우 낙찰자가 정해지지 않을 확률이 ${(results.leftoverProbability * 100).toFixed(1)}% 존재합니다.`;
                 } else {
                     const coverage = 1 - results.leftoverProbability;
                     insight += ` 계산된 구간만으로도 ${(coverage * 100).toFixed(1)}%의 상황에서 낙찰자가 결정됩니다.`;
                 }
 
                 return insight;
+            }
+
+            function getAmountShift(params) {
+                if (!params || params.aValue === undefined || params.aValue === null) {
+                    return 0;
+                }
+                const shift = Number.parseFloat(params.aValue);
+                return Number.isFinite(shift) ? shift : 0;
             }
 
             function formatAmount(amount) {
