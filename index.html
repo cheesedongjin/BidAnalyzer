@@ -556,56 +556,88 @@
                     const dpr = window.devicePixelRatio || 1;
                     const cssWidth = Number.parseFloat(winRateChartCanvas.dataset?.prevWidth) || rect.width || (winRateChartCanvas.width / dpr);
                     const cssHeight = Number.parseFloat(winRateChartCanvas.dataset?.prevHeight) || rect.height || (winRateChartCanvas.height / dpr);
-                    const pointerX = (event.clientX - rect.left) * (cssWidth / rect.width);
-                    const pointerY = (event.clientY - rect.top) * (cssHeight / rect.height);
+                    const mouseX = (event.clientX - rect.left) * (cssWidth / rect.width);
 
                     const padding = { top: 18, right: 16, bottom: 36, left: 68 };
+                    const chartWidth = Math.max(cssWidth - padding.left - padding.right, 10);
+                    const chartHeight = Math.max(cssHeight - padding.top - padding.bottom, 10);
                     const shift = getAmountShift(params);
 
-                    const minX = Math.min(...bids.map(bid => bid.price + shift));
-                    const maxX = Math.max(...bids.map(bid => bid.price + shift));
+                    const xValues = bids.map(bid => bid.price + shift);
+                    const yValues = bids.map(bid => bid.probability);
+                    const minX = Math.min(...xValues);
+                    const openPriceReference = Number.isFinite(params?.nominalOpenPrice)
+                        ? params.nominalOpenPrice
+                        : params.openPrice + shift;
+                    const maxX = Math.max(...xValues, openPriceReference);
                     const xRange = Math.max(maxX - minX, 1e-9);
-                    const yMax = Math.max(...bids.map(bid => bid.probability), 0);
+                    const yMax = computeNiceProbabilityCeiling(Math.max(...yValues, 0));
 
                     const scaleX = value => {
                         const ratio = (value - minX) / xRange;
-                        return padding.left + ratio * (cssWidth - padding.left - padding.right);
+                        return padding.left + clamp01(ratio) * chartWidth;
                     };
 
                     const scaleY = probability => {
-                        const ratio = yMax > 0 ? probability / yMax : 0;
-                        return padding.top + (1 - ratio) * (cssHeight - padding.top - padding.bottom);
+                        const bounded = probability <= 0 ? 0 : Math.min(probability, yMax);
+                        const ratio = bounded / (yMax || 1);
+                        return padding.top + (1 - ratio) * chartHeight;
                     };
 
                     let closestBid = null;
                     let minDistance = Infinity;
                     for (const bid of bids) {
                         const cx = scaleX(bid.price + shift);
-                        const cy = scaleY(bid.probability);
-                        const distance = Math.hypot(pointerX - cx, pointerY - cy);
+                        const distance = Math.abs(mouseX - cx);
                         if (distance < minDistance) {
                             minDistance = distance;
                             closestBid = bid;
                         }
                     }
 
-                    if (closestBid && minDistance <= 30) {
-                        chartTooltip.style.left = `${event.clientX - rect.left}px`;
-                        chartTooltip.style.top = `${event.clientY - rect.top}px`;
-                        chartTooltip.innerHTML = `
-                            ${closestBid.rate.toFixed(2)}%<br>
-                            확률: ${(closestBid.probability * 100).toFixed(1)}%<br>
-                            금액: ${formatAmount(closestBid.price + shift)}
-                        `.trim();
-                        chartTooltip.style.opacity = '1';
-                        chartTooltip.setAttribute('aria-hidden', 'false');
-                    } else {
+                    if (!closestBid) {
                         hideChartTooltip();
+                        return;
                     }
+
+                    renderWinRateChart(winRateChartCanvas, results, params);
+
+                    const ctx = winRateChartCanvas.getContext('2d');
+                    if (!ctx) {
+                        hideChartTooltip();
+                        return;
+                    }
+
+                    const cx = scaleX(closestBid.price + shift);
+                    const cy = scaleY(closestBid.probability);
+
+                    ctx.strokeStyle = 'rgba(37, 99, 235, 0.6)';
+                    ctx.beginPath();
+                    ctx.moveTo(cx, padding.top);
+                    ctx.lineTo(cx, cssHeight - padding.bottom);
+                    ctx.stroke();
+
+                    ctx.fillStyle = '#1d4ed8';
+                    ctx.beginPath();
+                    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    chartTooltip.style.left = `${event.clientX - rect.left}px`;
+                    chartTooltip.style.top = `${event.clientY - rect.top}px`;
+                    chartTooltip.innerHTML = `
+                        ${closestBid.rate.toFixed(2)}%<br>
+                        확률: ${(closestBid.probability * 100).toFixed(1)}%<br>
+                        금액: ${formatAmount(closestBid.price + shift)}
+                    `.trim();
+                    chartTooltip.style.opacity = '1';
+                    chartTooltip.setAttribute('aria-hidden', 'false');
                 });
 
                 winRateChartCanvas.addEventListener('mouseleave', () => {
                     hideChartTooltip();
+                    if (latestChartState) {
+                        renderWinRateChart(winRateChartCanvas, latestChartState.results, latestChartState.params);
+                    }
                 });
             }
 
