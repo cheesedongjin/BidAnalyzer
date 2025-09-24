@@ -77,7 +77,8 @@
         }
 
         .field input,
-        .field textarea {
+        .field textarea,
+        .field select {
             border: 1px solid var(--border);
             border-radius: 12px;
             padding: 12px 14px;
@@ -91,10 +92,17 @@
         }
 
         .field input:focus,
-        .field textarea:focus {
+        .field textarea:focus,
+        .field select:focus {
             border-color: var(--primary);
             box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
             outline: none;
+        }
+
+        .field-group {
+            display: grid;
+            gap: 12px;
+            margin-bottom: 16px;
         }
 
         .field .field-hint {
@@ -317,10 +325,20 @@
                 <input type="number" id="openPrice" name="openPrice" min="1" step="0.1" value="100">
             </div>
             <div class="field">
-                <label for="bidRates">참여업체 투찰률 목록 (%)</label>
-                <textarea id="bidRates" name="bidRates" rows="3" placeholder="예: 86.40, 86.70, 87.10, 87.25, 87.40">86.40, 86.70, 87.10, 87.25, 87.40, 87.55, 87.70, 87.85</textarea>
-                <small class="field-hint">콤마(,)나 줄바꿈으로 구분해 투찰률을 입력하면 됩니다.</small>
+                <label for="companyCount">참여 업체 수</label>
+                <input type="number" id="companyCount" name="companyCount" min="1" step="1" value="8">
+                <small class="field-hint">우리 회사를 포함한 전체 참여 업체 수를 입력하세요.</small>
             </div>
+            <div class="field">
+                <label for="distributionType">경쟁 업체 분포</label>
+                <select id="distributionType" name="distributionType">
+                    <option value="uniform">균등분포 (동일 확률)</option>
+                    <option value="triangular">삼각분포 (중앙값 쏠림)</option>
+                    <option value="truncnormal" selected>절단정규분포 (평균/표준편차)</option>
+                </select>
+                <small class="field-hint">경쟁 업체 제시가격이 따른다고 가정하는 분포를 선택하세요.</small>
+            </div>
+            <div id="distributionParams" class="field-group" aria-live="polite"></div>
             <div class="action-row">
                 <button type="submit" class="btn btn-primary">분석 실행</button>
                 <button type="button" id="resetButton" class="btn btn-secondary">초기화</button>
@@ -362,13 +380,24 @@
         (() => {
             const DEFAULTS = {
                 openPrice: 100,
-                bidRates: '86.40, 86.70, 87.10, 87.25, 87.40, 87.55, 87.70, 87.85'
+                companyCount: 8,
+                distributionType: 'truncnormal',
+                distributionParams: {
+                    uniform: { minRate: 78.50, maxRate: 81.50 },
+                    triangular: { minRate: 78.50, modeRate: 80.00, maxRate: 81.50 },
+                    truncnormal: { meanRate: 80.00, stdRate: 0.45 }
+                }
             };
 
             const BASE_RATE = 0.79995;
             const RANGE_RATIO = 0.02;
             const SAMPLE_SIZE = 15;
             const PICK_SIZE = 4;
+            const CANDIDATE_GRID_POINTS = 121;
+            const RATE_MIN = 50;
+            const RATE_MAX = 120;
+            const RATE_STD_MIN = 0.01;
+            const RATE_STD_MAX = 10;
 
             const form = document.getElementById('simulationForm');
             const loadingIndicator = document.getElementById('loadingIndicator');
@@ -378,15 +407,48 @@
             const probabilityList = document.getElementById('probabilityList');
             const marketInsight = document.getElementById('marketInsight');
             const resetButton = document.getElementById('resetButton');
-            const bidRatesInput = document.getElementById('bidRates');
+            const companyCountInput = document.getElementById('companyCount');
+            const distributionTypeSelect = document.getElementById('distributionType');
+            const distributionParamsContainer = document.getElementById('distributionParams');
+
+            let currentDistributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
+            if (!currentDistributionType) {
+                currentDistributionType = DEFAULTS.distributionType;
+                distributionTypeSelect.value = currentDistributionType;
+            }
+
+            const distributionParamState = {
+                uniform: { ...DEFAULTS.distributionParams.uniform },
+                triangular: { ...DEFAULTS.distributionParams.triangular },
+                truncnormal: { ...DEFAULTS.distributionParams.truncnormal }
+            };
+
+            renderDistributionParams(currentDistributionType);
 
             form.addEventListener('submit', event => {
                 event.preventDefault();
                 runAnalysis();
             });
 
+            distributionTypeSelect.addEventListener('change', event => {
+                persistDistributionParams();
+                currentDistributionType = event.target.value || DEFAULTS.distributionType;
+                if (!currentDistributionType) {
+                    currentDistributionType = DEFAULTS.distributionType;
+                }
+                renderDistributionParams(currentDistributionType);
+                runAnalysis();
+            });
+
             resetButton.addEventListener('click', () => {
                 form.reset();
+                resetDistributionParamState();
+                currentDistributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
+                if (!currentDistributionType) {
+                    currentDistributionType = DEFAULTS.distributionType;
+                    distributionTypeSelect.value = currentDistributionType;
+                }
+                renderDistributionParams(currentDistributionType);
                 runAnalysis();
             });
 
@@ -413,45 +475,166 @@
             }
 
             function collectFormData() {
+                persistDistributionParams();
                 const openPrice = sanitizeNumber(document.getElementById('openPrice').value, DEFAULTS.openPrice, 1, 10000);
-                const bidRates = parseRateList(bidRatesInput.value, DEFAULTS.bidRates);
-                return { openPrice, bidRates };
+                const companyCount = sanitizeInteger(companyCountInput.value, DEFAULTS.companyCount, 1, 60);
+                const distributionType = distributionTypeSelect.value || DEFAULTS.distributionType;
+                const distributionParams = { ...(distributionParamState[distributionType] ?? {}) };
+                return { openPrice, companyCount, distributionType, distributionParams };
             }
 
-            function sanitizeNumber(value, fallback, min, max) {
+            function sanitizeNumber(value, fallback, min = -Infinity, max = Infinity) {
                 const parsed = Number.parseFloat(value);
                 if (!Number.isFinite(parsed)) {
                     return fallback;
                 }
-                return Math.min(max, Math.max(min, parsed));
+                const lower = Number.isFinite(min) ? min : -Infinity;
+                const upper = Number.isFinite(max) ? max : Infinity;
+                return Math.min(upper, Math.max(lower, parsed));
             }
 
-            function parseRateList(raw, fallback) {
-                const source = (raw || '').trim();
-                const text = source.length ? source : fallback;
-                const tokens = text.split(/[\s,]+/);
-                const rates = [];
-                const seen = new Set();
+            function sanitizeInteger(value, fallback, min = -Infinity, max = Infinity) {
+                const parsed = Number.parseInt(value, 10);
+                if (!Number.isFinite(parsed)) {
+                    return fallback;
+                }
+                const lower = Number.isFinite(min) ? min : -Infinity;
+                const upper = Number.isFinite(max) ? max : Infinity;
+                const clamped = Math.min(upper, Math.max(lower, parsed));
+                return Math.trunc(clamped);
+            }
 
-                for (const token of tokens) {
-                    if (!token) continue;
-                    const rate = Number.parseFloat(token);
-                    if (!Number.isFinite(rate) || rate <= 0) {
-                        continue;
-                    }
-                    const rounded = Math.round(rate * 100) / 100;
-                    const key = rounded.toFixed(2);
-                    if (!seen.has(key)) {
-                        rates.push(rounded);
-                        seen.add(key);
-                    }
+            function formatRateValue(value, digits = 2) {
+                return Number.isFinite(value) ? value.toFixed(digits) : '';
+            }
+
+            function createParamInput({ id, label, key, value, min, max, step = '0.01', digits = 2, hint }) {
+                const minAttr = Number.isFinite(min) ? ` min="${min}" data-min="${min}"` : '';
+                const maxAttr = Number.isFinite(max) ? ` max="${max}" data-max="${max}"` : '';
+                const stepAttr = step ? ` step="${step}"` : '';
+                const digitsAttr = ` data-digits="${digits}"`;
+                const safeValue = formatRateValue(value, digits);
+                return `
+                    <div class="field">
+                        <label for="${id}">${label}</label>
+                        <input type="number" id="${id}" data-param="${key}"${digitsAttr}${minAttr}${maxAttr}${stepAttr} value="${safeValue}">
+                        ${hint ? `<small class="field-hint">${hint}</small>` : ''}
+                    </div>
+                `;
+            }
+
+            function renderDistributionParams(type) {
+                const defaults = DEFAULTS.distributionParams[type] ?? {};
+                const state = distributionParamState[type] ?? { ...defaults };
+                distributionParamState[type] = state;
+
+                let fieldsHtml = '';
+                if (type === 'uniform') {
+                    fieldsHtml = [
+                        createParamInput({
+                            id: 'uniformMinRate',
+                            label: '분포 하한 투찰률 (%)',
+                            key: 'minRate',
+                            value: state.minRate ?? defaults.minRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '경쟁 업체가 낼 가능성이 가장 낮은 투찰률'
+                        }),
+                        createParamInput({
+                            id: 'uniformMaxRate',
+                            label: '분포 상한 투찰률 (%)',
+                            key: 'maxRate',
+                            value: state.maxRate ?? defaults.maxRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '경쟁 업체가 낼 가능성이 가장 높은 투찰률'
+                        })
+                    ].join('');
+                } else if (type === 'triangular') {
+                    fieldsHtml = [
+                        createParamInput({
+                            id: 'triMinRate',
+                            label: '최솟값 투찰률 (%)',
+                            key: 'minRate',
+                            value: state.minRate ?? defaults.minRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '경쟁 업체 투찰률의 가능한 최솟값'
+                        }),
+                        createParamInput({
+                            id: 'triModeRate',
+                            label: '최빈값 투찰률 (%)',
+                            key: 'modeRate',
+                            value: state.modeRate ?? defaults.modeRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '가장 가능성이 높은 투찰률 (중앙값 역할)'
+                        }),
+                        createParamInput({
+                            id: 'triMaxRate',
+                            label: '최댓값 투찰률 (%)',
+                            key: 'maxRate',
+                            value: state.maxRate ?? defaults.maxRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '경쟁 업체 투찰률의 가능한 최댓값'
+                        })
+                    ].join('');
+                } else {
+                    fieldsHtml = [
+                        createParamInput({
+                            id: 'truncMeanRate',
+                            label: '평균 투찰률 (%)',
+                            key: 'meanRate',
+                            value: state.meanRate ?? defaults.meanRate,
+                            min: RATE_MIN,
+                            max: RATE_MAX,
+                            hint: '경쟁 업체의 평균 투찰 수준'
+                        }),
+                        createParamInput({
+                            id: 'truncStdRate',
+                            label: '표준편차 (%)',
+                            key: 'stdRate',
+                            value: state.stdRate ?? defaults.stdRate,
+                            min: RATE_STD_MIN,
+                            max: RATE_STD_MAX,
+                            hint: '평균 대비 분산(흩어짐) 정도'
+                        })
+                    ].join('');
                 }
 
-                if (!rates.length && fallback && fallback !== text) {
-                    return parseRateList(fallback, '');
-                }
+                distributionParamsContainer.innerHTML = fieldsHtml;
+            }
 
-                return rates;
+            function persistDistributionParams() {
+                const inputs = distributionParamsContainer.querySelectorAll('[data-param]');
+                if (!inputs.length) {
+                    return;
+                }
+                const type = currentDistributionType;
+                const defaults = DEFAULTS.distributionParams[type] ?? {};
+                const state = distributionParamState[type] ?? { ...defaults };
+                distributionParamState[type] = state;
+
+                inputs.forEach(input => {
+                    const key = input.dataset.param;
+                    if (!key) {
+                        return;
+                    }
+                    const min = input.dataset.min ? Number.parseFloat(input.dataset.min) : -Infinity;
+                    const max = input.dataset.max ? Number.parseFloat(input.dataset.max) : Infinity;
+                    const digits = input.dataset.digits ? Number.parseInt(input.dataset.digits, 10) : 2;
+                    const fallback = Number.isFinite(state[key]) ? state[key] : defaults[key];
+                    const sanitized = sanitizeNumber(input.value, fallback, min, max);
+                    state[key] = sanitized;
+                    input.value = formatRateValue(sanitized, digits);
+                });
+            }
+
+            function resetDistributionParamState() {
+                for (const [type, defaults] of Object.entries(DEFAULTS.distributionParams)) {
+                    distributionParamState[type] = { ...defaults };
+                }
             }
 
             function analyzeBids(params) {
@@ -461,34 +644,9 @@
                 const mean = (low + high) / 2;
                 const stdDev = (high - low) / Math.sqrt(12 * PICK_SIZE);
 
-                const bids = params.bidRates
-                    .map(rate => ({
-                        rate,
-                        price: params.openPrice * (rate / 100)
-                    }))
-                    .filter(bid => Number.isFinite(bid.price))
-                    .sort((a, b) => a.price - b.price);
-
-                if (!bids.length) {
-                    return {
-                        basePrice,
-                        low,
-                        high,
-                        mean,
-                        stdDev,
-                        bids: [],
-                        bestIndex: -1,
-                        topIndices: [],
-                        leftoverProbability: 1,
-                        otherCompanyCount: 0,
-                        distribution: null,
-                        maxPrice: low
-                    };
-                }
-
-                const priceData = bids.map(bid => clamp(bid.price, low, high));
-                const distribution = buildCompetitorDistribution(priceData, low, high, params.openPrice);
-                const otherCompanyCount = Math.max(0, bids.length - 1);
+                const distribution = buildCompetitorDistributionFromSelection(params, low, high);
+                const otherCompanyCount = Math.max(0, (params.companyCount ?? DEFAULTS.companyCount) - 1);
+                const totalCompanyCount = otherCompanyCount + 1;
 
                 const integrationGrid = createIntegrationGrid(low, high, 4096);
                 const averagePdfValues = integrationGrid.map(value => averagePdf(value, low, high, PICK_SIZE));
@@ -496,12 +654,14 @@
 
                 const results = [];
                 let bestIndex = -1;
-                let maxProbability = -1;
+                let maxProbability = -Infinity;
 
-                for (let idx = 0; idx < bids.length; idx++) {
-                    const bid = bids[idx];
+                for (let idx = 0; idx < CANDIDATE_GRID_POINTS; idx++) {
+                    const ratio = CANDIDATE_GRID_POINTS > 1 ? idx / (CANDIDATE_GRID_POINTS - 1) : 0;
+                    const price = low + (high - low) * ratio;
+                    const rate = (price / params.openPrice) * 100;
                     const probability = computeWinProbability(
-                        bid.price,
+                        price,
                         low,
                         high,
                         otherCompanyCount,
@@ -511,13 +671,13 @@
                         distributionCdfValues,
                         PICK_SIZE
                     );
-                    const thresholdUpper = Math.min(bid.price, high);
+                    const thresholdUpper = Math.min(price, high);
                     const thresholdShare = averageCdf(thresholdUpper, low, high, PICK_SIZE);
-                    const competitorShareBelow = clamp01(distribution.cdf(bid.price));
+                    const competitorShareBelow = clamp01(distribution.cdf(price));
 
                     const entry = {
-                        rate: bid.rate,
-                        price: bid.price,
+                        rate,
+                        price,
                         probability,
                         thresholdUpper,
                         thresholdShare,
@@ -552,6 +712,7 @@
                     topIndices,
                     leftoverProbability,
                     otherCompanyCount,
+                    totalCompanyCount,
                     distribution,
                     maxPrice
                 };
@@ -703,58 +864,101 @@
                 return result;
             }
 
-            function buildCompetitorDistribution(prices, low, high, openPrice) {
-                const range = Math.max(high - low, 1e-9);
-                const count = prices.length;
+            function buildCompetitorDistributionFromSelection(params, low, high) {
+                const type = params.distributionType || DEFAULTS.distributionType;
+                const openPrice = params.openPrice;
+                const settings = params.distributionParams ?? {};
+                const defaults = DEFAULTS.distributionParams;
+                const toPrice = rate => openPrice * (rate / 100);
+                const toRate = price => (price / openPrice) * 100;
 
-                if (!count) {
-                    const uniform = createUniformDistribution(low, high);
-                    const mu = uniform.mu;
-                    const sigma = uniform.sigma;
+                const createUniformFromRates = () => {
+                    const uniformDefaults = defaults.uniform;
+                    let minRate = sanitizeNumber(settings.minRate, uniformDefaults.minRate, RATE_MIN, RATE_MAX);
+                    let maxRate = sanitizeNumber(settings.maxRate, uniformDefaults.maxRate, RATE_MIN, RATE_MAX);
+                    if (!Number.isFinite(minRate)) minRate = uniformDefaults.minRate;
+                    if (!Number.isFinite(maxRate)) maxRate = uniformDefaults.maxRate;
+                    if (minRate > maxRate) {
+                        [minRate, maxRate] = [maxRate, minRate];
+                    }
+                    if (Math.abs(maxRate - minRate) < 1e-6) {
+                        maxRate = minRate + 0.1;
+                    }
+                    const distribution = createUniformDistribution(toPrice(minRate), toPrice(maxRate));
+                    const description = `하한 ${minRate.toFixed(2)}% ~ 상한 ${maxRate.toFixed(2)}%`;
                     return {
-                        ...uniform,
-                        mu,
-                        sigma,
-                        sampleMean: mu,
-                        sampleStd: sigma,
-                        rateSampleMean: (mu / openPrice) * 100,
-                        rateSampleStd: (sigma / openPrice) * 100,
-                        rateMu: (mu / openPrice) * 100,
-                        rateSigma: (sigma / openPrice) * 100,
-                        count: 0
+                        ...enrichDistribution(distribution, '균등 분포', openPrice, description),
+                        rateMin: Math.min(minRate, maxRate),
+                        rateMax: Math.max(minRate, maxRate)
                     };
+                };
+
+                const createTriangularFromRates = () => {
+                    const triDefaults = defaults.triangular;
+                    let minRate = sanitizeNumber(settings.minRate, triDefaults.minRate, RATE_MIN, RATE_MAX);
+                    let modeRate = sanitizeNumber(settings.modeRate, triDefaults.modeRate, RATE_MIN, RATE_MAX);
+                    let maxRate = sanitizeNumber(settings.maxRate, triDefaults.maxRate, RATE_MIN, RATE_MAX);
+                    if (!Number.isFinite(minRate)) minRate = triDefaults.minRate;
+                    if (!Number.isFinite(modeRate)) modeRate = triDefaults.modeRate;
+                    if (!Number.isFinite(maxRate)) maxRate = triDefaults.maxRate;
+                    if (minRate > maxRate) {
+                        [minRate, maxRate] = [maxRate, minRate];
+                    }
+                    if (Math.abs(maxRate - minRate) < 1e-6) {
+                        maxRate = minRate + 0.1;
+                    }
+                    modeRate = clamp(modeRate, minRate, maxRate);
+                    const distribution = createTriangularDistribution(toPrice(minRate), toPrice(modeRate), toPrice(maxRate));
+                    const description = `최솟값 ${minRate.toFixed(2)}% / 최빈값 ${modeRate.toFixed(2)}% / 최댓값 ${maxRate.toFixed(2)}%`;
+                    return {
+                        ...enrichDistribution(distribution, '삼각 분포', openPrice, description),
+                        rateMin: minRate,
+                        rateMode: modeRate,
+                        rateMax: maxRate
+                    };
+                };
+
+                const createTruncNormalFromRates = () => {
+                    const truncDefaults = defaults.truncnormal;
+                    let meanRate = sanitizeNumber(settings.meanRate, truncDefaults.meanRate, RATE_MIN, RATE_MAX);
+                    let stdRate = sanitizeNumber(settings.stdRate, truncDefaults.stdRate, RATE_STD_MIN, RATE_STD_MAX);
+                    if (!Number.isFinite(meanRate)) meanRate = truncDefaults.meanRate;
+                    if (!Number.isFinite(stdRate) || stdRate <= 0) stdRate = truncDefaults.stdRate;
+                    const mu = toPrice(meanRate);
+                    const sigma = Math.max(openPrice * (stdRate / 100), (high - low) / 200, Math.abs(mu) * 1e-6);
+                    const distribution = buildTruncatedNormalDistribution(low, high, mu, sigma);
+                    const description = `평균 ${meanRate.toFixed(2)}%, 표준편차 ${stdRate.toFixed(2)}%`;
+                    return {
+                        ...enrichDistribution(distribution, '절단 정규 분포', openPrice, description),
+                        rateMean: meanRate,
+                        rateStd: stdRate,
+                        supportRateLow: toRate(low),
+                        supportRateHigh: toRate(high)
+                    };
+                };
+
+                switch (type) {
+                    case 'uniform':
+                        return createUniformFromRates();
+                    case 'triangular':
+                        return createTriangularFromRates();
+                    case 'truncnormal':
+                    default:
+                        return createTruncNormalFromRates();
                 }
+            }
 
-                const sampleMean = prices.reduce((acc, value) => acc + value, 0) / count;
-                const sampleVariance = count > 1
-                    ? prices.reduce((acc, value) => acc + Math.pow(value - sampleMean, 2), 0) / (count - 1)
-                    : 0;
-                const sampleStd = Math.sqrt(Math.max(sampleVariance, 0));
-
-                const muTarget = clamp(sampleMean, low + 0.05 * range, high - 0.05 * range);
-                const sigmaTarget = Math.max(sampleStd, range / 20);
-
-                let baseDistribution;
-                if (count >= 3) {
-                    baseDistribution = buildTruncatedNormalDistribution(low, high, muTarget, sigmaTarget);
-                } else {
-                    baseDistribution = createUniformDistribution(low, high);
-                }
-
-                const mu = baseDistribution.mu ?? muTarget;
-                const sigma = baseDistribution.sigma ?? Math.max(sampleStd, range / Math.sqrt(12));
-
+            function enrichDistribution(baseDistribution, typeLabel, openPrice, description) {
+                const mu = Number.isFinite(baseDistribution.mu) ? baseDistribution.mu : 0;
+                const sigma = Number.isFinite(baseDistribution.sigma) ? baseDistribution.sigma : 0;
                 return {
                     ...baseDistribution,
+                    type: typeLabel,
                     mu,
                     sigma,
-                    sampleMean,
-                    sampleStd,
-                    rateSampleMean: (sampleMean / openPrice) * 100,
-                    rateSampleStd: (sampleStd / openPrice) * 100,
                     rateMu: (mu / openPrice) * 100,
                     rateSigma: (sigma / openPrice) * 100,
-                    count
+                    description
                 };
             }
 
@@ -831,6 +1035,67 @@
                 };
             }
 
+            function createTriangularDistribution(min, mode, max) {
+                const lower = Math.min(min, max);
+                const upper = Math.max(min, max);
+
+                if (!Number.isFinite(lower) || !Number.isFinite(upper)) {
+                    return createUniformDistribution(min, max);
+                }
+
+                const range = upper - lower;
+                if (range < 1e-6) {
+                    return createUniformDistribution(lower, upper);
+                }
+
+                const epsilon = Math.max(range * 1e-3, 1e-6 * Math.max(1, Math.abs(upper)));
+                let peak = Number.isFinite(mode) ? clamp(mode, lower + epsilon, upper - epsilon) : lower + range / 2;
+
+                if (peak <= lower) {
+                    peak = lower + epsilon;
+                }
+                if (peak >= upper) {
+                    peak = upper - epsilon;
+                }
+
+                const leftWidth = peak - lower;
+                const rightWidth = upper - peak;
+                if (leftWidth <= 0 || rightWidth <= 0) {
+                    return createUniformDistribution(lower, upper);
+                }
+
+                const mu = (lower + peak + upper) / 3;
+                const variance = (lower * lower + peak * peak + upper * upper - lower * peak - lower * upper - peak * upper) / 18;
+                const sigma = Math.sqrt(Math.max(variance, 0));
+
+                return {
+                    type: '삼각',
+                    mu,
+                    sigma,
+                    pdf(value) {
+                        if (value < lower || value > upper) {
+                            return 0;
+                        }
+                        if (value <= peak) {
+                            return (2 * (value - lower)) / ((upper - lower) * leftWidth);
+                        }
+                        return (2 * (upper - value)) / ((upper - lower) * rightWidth);
+                    },
+                    cdf(value) {
+                        if (value <= lower) {
+                            return 0;
+                        }
+                        if (value >= upper) {
+                            return 1;
+                        }
+                        if (value <= peak) {
+                            return Math.pow(value - lower, 2) / ((upper - lower) * leftWidth);
+                        }
+                        return 1 - Math.pow(upper - value, 2) / ((upper - lower) * rightWidth);
+                    }
+                };
+            }
+
             function standardNormalPdf(x) {
                 return Math.exp(-0.5 * x * x) / Math.sqrt(2 * Math.PI);
             }
@@ -864,11 +1129,11 @@
             function displayResults(params, results) {
                 if (!results.bids.length) {
                     resultSummary.innerHTML = `
-                        <p>유효한 투찰률을 최소 1개 이상 입력해주세요.</p>
+                        <p>설정한 분포로 계산 가능한 투찰 구간이 없습니다. 입력값을 다시 확인해주세요.</p>
                     `;
                     strategyNotes.innerHTML = '';
                     probabilityList.innerHTML = '';
-                    marketInsight.textContent = '투찰률 목록을 입력하면 각 값의 낙찰 확률을 계산해 드립니다.';
+                    marketInsight.textContent = '경쟁 분포와 업체 수 설정을 조정한 뒤 다시 계산해주세요.';
                     resultSection.hidden = false;
                     return;
                 }
@@ -884,18 +1149,21 @@
                 `;
 
                 const rangePercent = (RANGE_RATIO * 100).toFixed(2);
+                const lowRate = (results.low / params.openPrice) * 100;
+                const highRate = (results.high / params.openPrice) * 100;
                 const notes = [
                     `기준가격: <strong>${formatAmount(results.basePrice)}</strong>`,
-                    `추출 범위 (±${rangePercent}%): <strong>${formatAmount(results.low)} ~ ${formatAmount(results.high)}</strong>`,
-                    `표본 평균의 평균값: <strong>${formatAmount(results.mean)}</strong>`,
-                    `표본 평균 분포의 표준편차: <strong>${formatAmount(results.stdDev)}</strong>`,
-                    `타 업체 수 가정: <strong>${results.otherCompanyCount}</strong>곳`
+                    `임계값 추정 범위 (±${rangePercent}%): <strong>${formatAmount(results.low)} ~ ${formatAmount(results.high)}</strong> (${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%)`,
+                    `표본 평균 기대값: <strong>${formatAmount(results.mean)}</strong>`,
+                    `표본 평균 분포 표준편차: <strong>${formatAmount(results.stdDev)}</strong>`,
+                    `총 참여 업체 수: <strong>${results.totalCompanyCount}</strong>곳`,
+                    `경쟁 업체 수(우리 제외): <strong>${results.otherCompanyCount}</strong>곳`
                 ];
 
                 if (results.distribution) {
                     const dist = results.distribution;
-                    notes.push(`타 업체 분포: <strong>${dist.type}</strong> (평균 ${formatAmount(dist.mu)}, 표준편차 ${formatAmount(dist.sigma)})`);
-                    notes.push(`입력 데이터 ${dist.count}건 기준 평균/표준편차: <strong>${formatAmount(dist.sampleMean)}</strong> / <strong>${formatAmount(dist.sampleStd)}</strong> (투찰률 ${dist.rateSampleMean.toFixed(2)}% / ${dist.rateSampleStd.toFixed(2)}%)`);
+                    notes.push(`경쟁 분포 가정: <strong>${dist.type}</strong> (${dist.description})`);
+                    notes.push(`분포 평균/표준편차: <strong>${formatAmount(dist.mu)}</strong> / <strong>${formatAmount(dist.sigma)}</strong> (투찰률 ${dist.rateMu.toFixed(2)}% / ${dist.rateSigma.toFixed(2)}%)`);
                 }
 
                 notes.push(`분석 방법: <strong>${SAMPLE_SIZE}개 중 ${PICK_SIZE}개 평균분포 + 타업체 연속분포 적분</strong>`);
@@ -903,7 +1171,7 @@
                 if (results.leftoverProbability > 1e-6) {
                     notes.push(`임계값이 최고 투찰금액을 초과해 낙찰자가 정해지지 않을 확률: <strong>${(results.leftoverProbability * 100).toFixed(1)}%</strong>`);
                 } else {
-                    notes.push('입력한 투찰률만으로도 모든 경우 낙찰자가 결정됩니다.');
+                    notes.push('임계값 상단까지 전 구간을 포함해 계산되었습니다.');
                 }
 
                 strategyNotes.innerHTML = `<ul>${notes.map(note => `<li>${note}</li>`).join('')}</ul>`;
@@ -948,38 +1216,44 @@
 
             function buildMarketInsight(params, results) {
                 if (!results.bids.length) {
-                    return '투찰률 목록이 비어 있어 시장 해석을 제공할 수 없습니다.';
+                    return '설정된 분포로 계산된 구간이 없어 시장 해석을 제공할 수 없습니다.';
                 }
 
                 const bestBid = results.bestIndex >= 0 ? results.bids[results.bestIndex] : null;
                 if (!bestBid) {
-                    return '분석된 투찰률이 없어 해석을 제공할 수 없습니다.';
+                    return '계산된 투찰 구간이 없어 추가 해석을 제공할 수 없습니다.';
                 }
 
                 const rangeText = `${formatAmount(results.low)} ~ ${formatAmount(results.high)}`;
-                let insight = `임계값 A는 ${rangeText} 범위에서 형성되며 평균은 ${formatAmount(results.mean)}입니다. `;
+                const lowRate = (results.low / params.openPrice) * 100;
+                const highRate = (results.high / params.openPrice) * 100;
+                const totalCount = results.totalCompanyCount ?? (results.otherCompanyCount + 1);
+                const competitorCount = results.otherCompanyCount;
+
+                let insight = `임계값 A는 ${rangeText} (${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%) 범위에서 형성되며 평균은 ${formatAmount(results.mean)}입니다. `;
+                insight += `총 참여 업체 수는 ${totalCount}곳(경쟁 ${competitorCount}곳)으로 설정했습니다. `;
 
                 if (results.distribution) {
                     const dist = results.distribution;
-                    insight += `타 업체 제시가격 분포는 ${dist.type}으로 가정했으며 평균 투찰률은 ${dist.rateMu.toFixed(2)}%, 표준편차는 ${dist.rateSigma.toFixed(2)}% 수준입니다. `;
+                    insight += `경쟁 업체 제시가격 분포는 ${dist.type}(${dist.description})으로 가정했으며 평균 투찰률은 ${dist.rateMu.toFixed(2)}%, 표준편차는 ${dist.rateSigma.toFixed(2)}% 수준입니다. `;
                 }
 
                 if (bestBid.probability <= 0) {
                     const highestBid = results.bids[results.bids.length - 1];
                     const cap = Math.min(results.high, highestBid.price);
-                    insight += `현재 입력한 후보만으로는 임계값을 넘는 전략이 없어 낙찰이 어렵습니다. ${formatAmount(cap)} 이상의 금액도 검토하세요.`;
+                    insight += `현재 설정에서는 임계값을 넘는 전략이 없어 낙찰이 어렵습니다. ${formatAmount(cap)} 이상의 금액도 검토하세요.`;
                     return insight;
                 }
 
                 insight += `${bestBid.rate.toFixed(2)}% (${formatAmount(bestBid.price)}) 투찰 시 낙찰 확률은 ${(bestBid.probability * 100).toFixed(1)}%입니다. `;
-                insight += `임계값이 ${formatAmount(bestBid.thresholdUpper)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 타 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다. `;
+                insight += `임계값이 ${formatAmount(bestBid.thresholdUpper)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 경쟁 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다.`;
 
                 if (results.leftoverProbability > 1e-6) {
                     const cap = Math.min(results.high, results.maxPrice);
-                    insight += `또한 임계값이 ${formatAmount(cap)} 이상일 경우 낙찰자가 정해지지 않을 확률이 ${(results.leftoverProbability * 100).toFixed(1)}% 존재합니다.`;
+                    insight += ` 또한 임계값이 ${formatAmount(cap)} 이상일 경우 낙찰자가 정해지지 않을 확률이 ${(results.leftoverProbability * 100).toFixed(1)}% 존재합니다.`;
                 } else {
                     const coverage = 1 - results.leftoverProbability;
-                    insight += `입력한 투찰률 구간만으로도 ${(coverage * 100).toFixed(1)}%의 상황에서 낙찰자가 결정됩니다.`;
+                    insight += ` 계산된 구간만으로도 ${(coverage * 100).toFixed(1)}%의 상황에서 낙찰자가 결정됩니다.`;
                 }
 
                 return insight;
