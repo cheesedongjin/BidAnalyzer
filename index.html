@@ -2224,56 +2224,71 @@
 
             function toKoreanCurrencyCompact(input) {
                 let s = String(input).trim();
-                if (s === '') {
-                    return s;
-                }
+                if (s === '') return s;
 
                 const neg = s.startsWith('-');
-                if (neg) {
-                    s = s.slice(1);
-                }
+                if (neg) s = s.slice(1);
 
                 s = s.replace(/[^\d]/g, '');
-                if (s === '') {
-                    return neg ? '-' : '';
-                }
+                if (s === '') return neg ? '-' : '';
 
                 s = s.replace(/^0+/, '') || '0';
 
                 if (Number.isSafeInteger(Number(s)) && Number(s) < 1000) {
-                    return (neg ? '-' : '') + s;
+                    return (neg ? '-' : '') + Number(s).toLocaleString('ko-KR') + '원';
                 }
                 if (s.length < 4) {
-                    return (neg ? '-' : '') + s;
+                    return (neg ? '-' : '') + Number(s).toLocaleString('ko-KR') + '원';
                 }
 
+                // 4자리씩 끊기
                 const groups = [];
                 for (let i = s.length; i > 0; i -= 4) {
                     const start = Math.max(0, i - 4);
-                    groups.push(s.slice(start, i));
+                    groups.unshift(s.slice(start, i));
                 }
-                groups.reverse();
 
-                const units = ['조', '억', '만'];
-
+                const units = ['만', '억', '조', '경'];
                 const parts = [];
                 const n = groups.length;
-                for (let i = 0; i < n - 1; i++) {
-                    const g = groups[i];
-                    if (!/^0+$/.test(g)) {
-                        const unitIndexFromRight = (n - 2) - i;
-                        const unit = units[unitIndexFromRight] || '';
-                        parts.push(String(Number(g)) + unit);
+
+                if (n > units.length) {
+                    // 경 이상 그룹을 모두 합쳐서 하나의 큰 수로 만든다
+                    const bigNumGroups = groups.slice(0, n - (units.length - 1));
+                    const bigNum = BigInt(bigNumGroups.join(''));  // BigInt 사용 → 정확도 유지
+                    parts.push(bigNum.toLocaleString('ko-KR') + '경');
+
+                    // 나머지 (조, 억, 만, 원)
+                    for (let i = n - (units.length - 1); i < n; i++) {
+                        const g = groups[i];
+                        if (/^0+$/.test(g)) continue;
+
+                        const num = Number(g).toLocaleString('ko-KR');
+                        const idx = n - 1 - i;
+                        if (idx === 0) {
+                            parts.push(num); // 마지막 그룹 (원)
+                        } else {
+                            parts.push(num + units[idx - 1]);
+                        }
+                    }
+                } else {
+                    // 경 이하 처리
+                    for (let i = 0; i < n; i++) {
+                        const g = groups[i];
+                        if (/^0+$/.test(g)) continue;
+
+                        const num = Number(g).toLocaleString('ko-KR');
+                        const idx = n - 1 - i;
+                        if (idx === 0) {
+                            parts.push(num);
+                        } else {
+                            parts.push(num + units[idx - 1]);
+                        }
                     }
                 }
 
-                const last = groups[n - 1];
-                if (!/^0+$/.test(last)) {
-                    parts.push(String(Number(last)) + '원');
-                }
-
-                const result = (neg ? '-' : '') + parts.join(' ').trim();
-                return result || (neg ? '-' : '') + '0';
+                const result = (neg ? '-' : '') + (parts.length ? parts.join(' ') + '원' : '0원');
+                return result;
             }
 
             function formatAmount(amount) {
