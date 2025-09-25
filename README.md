@@ -1,6 +1,7 @@
 # ✅ 개정판 README (교체본)
 
 # 입찰 전략 계산기 (BidAnalyzer)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 핵심 수치만 입력하면 가장 유리한 투찰 구간을 바로 확인할 수 있는 웹 기반 입찰 전략 분석 도구입니다.
 
