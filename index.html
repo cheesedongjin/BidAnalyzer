@@ -536,6 +536,30 @@
 
             let latestChartState = null;
 
+            const FORM_STORAGE_KEY = 'bidAnalyzer.formState.v1';
+            const FORM_STORAGE_FIELDS = {
+                openPrice: openPriceInput,
+                aValue: aValueInput,
+                companyCount: companyCountInput,
+                distributionType: distributionTypeSelect,
+                baseRate: baseRateInput,
+                rangeRatio: rangeRatioInput,
+                positiveSampleSize: positiveSampleSizeInput,
+                negativeSampleSize: negativeSampleSizeInput,
+                pickSize: pickSizeInput
+            };
+
+            let suppressStorageUpdate = false;
+
+            applyStoredFormState();
+
+            const storageElements = Object.values(FORM_STORAGE_FIELDS).filter(Boolean);
+            storageElements.forEach(element => {
+                ['input', 'change'].forEach(eventType => {
+                    element.addEventListener(eventType, persistFormState);
+                });
+            });
+
             const hideChartTooltip = () => {
                 if (!chartTooltip) {
                     return;
@@ -720,13 +744,104 @@
             });
 
             resetButton.addEventListener('click', () => {
-                form.reset();
-                updateCurrencyHint(openPriceInput, openPriceCompactHint);
-                updateCurrencyHint(aValueInput, aValueCompactHint);
+                suppressStorageUpdate = true;
+                try {
+                    form.reset();
+                    removeStoredFormState();
+                    updateCurrencyHint(openPriceInput, openPriceCompactHint);
+                    updateCurrencyHint(aValueInput, aValueCompactHint);
+                } finally {
+                    suppressStorageUpdate = false;
+                }
                 runAnalysis();
             });
 
             runAnalysis();
+
+            function getSafeLocalStorage() {
+                try {
+                    return window.localStorage;
+                } catch (error) {
+                    console.warn('로컬 스토리지를 사용할 수 없습니다.', error);
+                    return null;
+                }
+            }
+
+            function loadStoredFormState() {
+                const storage = getSafeLocalStorage();
+                if (!storage) {
+                    return null;
+                }
+                try {
+                    const raw = storage.getItem(FORM_STORAGE_KEY);
+                    if (!raw) {
+                        return null;
+                    }
+                    const parsed = JSON.parse(raw);
+                    if (parsed && typeof parsed === 'object') {
+                        return parsed;
+                    }
+                } catch (error) {
+                    console.warn('저장된 입력값을 불러오는 중 오류가 발생했습니다.', error);
+                }
+                return null;
+            }
+
+            function applyStoredFormState() {
+                const stored = loadStoredFormState();
+                if (!stored) {
+                    return;
+                }
+                suppressStorageUpdate = true;
+                try {
+                    for (const [key, element] of Object.entries(FORM_STORAGE_FIELDS)) {
+                        if (!element) {
+                            continue;
+                        }
+                        const value = stored[key];
+                        if (value === undefined || value === null) {
+                            continue;
+                        }
+                        element.value = String(value);
+                    }
+                } finally {
+                    suppressStorageUpdate = false;
+                }
+            }
+
+            function persistFormState() {
+                if (suppressStorageUpdate) {
+                    return;
+                }
+                const storage = getSafeLocalStorage();
+                if (!storage) {
+                    return;
+                }
+                const state = {};
+                for (const [key, element] of Object.entries(FORM_STORAGE_FIELDS)) {
+                    if (!element) {
+                        continue;
+                    }
+                    state[key] = element.value ?? '';
+                }
+                try {
+                    storage.setItem(FORM_STORAGE_KEY, JSON.stringify(state));
+                } catch (error) {
+                    console.warn('입력값을 저장하는 중 오류가 발생했습니다.', error);
+                }
+            }
+
+            function removeStoredFormState() {
+                const storage = getSafeLocalStorage();
+                if (!storage) {
+                    return;
+                }
+                try {
+                    storage.removeItem(FORM_STORAGE_KEY);
+                } catch (error) {
+                    console.warn('저장된 입력값을 삭제하는 중 오류가 발생했습니다.', error);
+                }
+            }
 
             function runAnalysis() {
                 clearPickSizeValidity();
