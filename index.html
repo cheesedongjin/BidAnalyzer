@@ -569,13 +569,31 @@
 
                     const xValues = bids.map(bid => bid.price + shift);
                     const yValues = bids.map(bid => bid.probability);
-                    const minX = Math.min(...xValues);
+
+                    let cutoffIndex = bids.length - 1;
+                    for (let i = bids.length - 1; i >= 1; i--) {
+                        if (Math.abs(yValues[i] - yValues[i - 1]) > 1e-6) {
+                            cutoffIndex = i;
+                            break;
+                        }
+                    }
+                    const extra = Math.ceil((bids.length - cutoffIndex) * 0.1);
+                    const finalIndex = Math.min(bids.length - 1, cutoffIndex + extra);
+                    const trimmedBids = bids.slice(0, finalIndex + 1);
+                    const trimmedXValues = xValues.slice(0, finalIndex + 1);
+                    const trimmedYValues = yValues.slice(0, finalIndex + 1);
+                    if (!trimmedBids.length) {
+                        hideChartTooltip();
+                        return;
+                    }
+
+                    const minX = Math.min(...trimmedXValues);
                     const openPriceReference = Number.isFinite(params?.nominalOpenPrice)
                         ? params.nominalOpenPrice
                         : params.openPrice + shift;
-                    const maxX = Math.max(...xValues, openPriceReference);
+                    const maxX = Math.max(...trimmedXValues, openPriceReference);
                     const xRange = Math.max(maxX - minX, 1e-9);
-                    const yMax = computeNiceProbabilityCeiling(Math.max(...yValues, 0));
+                    const yMax = computeNiceProbabilityCeiling(Math.max(...trimmedYValues, 0));
 
                     const scaleX = value => {
                         const ratio = (value - minX) / xRange;
@@ -590,7 +608,7 @@
 
                     let closestBid = null;
                     let minDistance = Infinity;
-                    for (const bid of bids) {
+                    for (const bid of trimmedBids) {
                         const cx = scaleX(bid.price + shift);
                         const distance = Math.abs(mouseX - cx);
                         if (distance < minDistance) {
