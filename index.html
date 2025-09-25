@@ -960,7 +960,9 @@
                     const thresholdUpper = Math.min(price, high);
                     const thresholdShare = averageCdf(thresholdUpper, low, high, basePrice, pickSize, posN, negN);
 
-                    const competitorShareBelow = clamp01(distribution.cdf(price));
+                    const competitorShareBelow = (otherCompanyCount > 0 && distribution && typeof distribution.cdf === 'function')
+                        ? clamp01(distribution.cdf(price))
+                        : thresholdPassProbability;
 
                     const entry = {
                         rate,
@@ -968,7 +970,8 @@
                         probability,
                         thresholdUpper,
                         thresholdShare,
-                        competitorShareBelow
+                        competitorShareBelow,
+                        thresholdPassProbability
                     };
 
                     results.push(entry);
@@ -1692,7 +1695,11 @@
                     `경쟁 업체 수(우리 제외): <strong>${results.otherCompanyCount}</strong>곳`
                 ];
 
-                if (results.distribution) {
+                if (results.otherCompanyCount <= 0) {
+                    notes.push('단독 참여: 경쟁 업체가 없어 임계값 통과 확률만으로 낙찰 확률을 계산했습니다.');
+                }
+
+                if (results.otherCompanyCount > 0 && results.distribution) {
                     const dist = results.distribution;
                     notes.push(`경쟁 분포 가정: <strong>${dist.type}</strong> (${dist.description})`);
                     notes.push(`분포 평균/표준편차: <strong>${formatAmount(dist.mu + shift)}</strong> / <strong>${formatAmount(dist.sigma)}</strong> (투찰률 ${dist.rateMu.toFixed(2)}% / ${dist.rateSigma.toFixed(2)}%)`);
@@ -1753,11 +1760,16 @@
                     const bid = results.bids[idx];
                     const probability = bid.probability * 100;
                     const fillWidth = Math.max(3, Math.min(100, probability));
-                    const tooltip = [
+                    const tooltipParts = [
                         `제시금액 ${formatAmount(bid.price + shift)}`,
-                        `임계값 커버 ${(bid.thresholdShare * 100).toFixed(1)}%`,
-                        `타 업체 ≤ ${bid.rate.toFixed(2)}% 비중 ${(bid.competitorShareBelow * 100).toFixed(1)}%`
-                    ].join(' | ');
+                        `임계값 커버 ${(bid.thresholdShare * 100).toFixed(1)}%`
+                    ];
+                    if (results.otherCompanyCount > 0) {
+                        tooltipParts.push(`타 업체 ≤ ${bid.rate.toFixed(2)}% 비중 ${(bid.competitorShareBelow * 100).toFixed(1)}%`);
+                    } else {
+                        tooltipParts.push(`단독 참여: 임계값 통과 ${(bid.thresholdShare * 100).toFixed(1)}%`);
+                    }
+                    const tooltip = tooltipParts.join(' | ');
                     return `
                         <div class="probability-row">
                             <div class="probability-label" title="${tooltip}">${bid.rate.toFixed(2)}%</div>
@@ -2112,7 +2124,9 @@
                 let insight = `임계값 A는 ${rangeText} (${lowRate.toFixed(2)}% ~ ${highRate.toFixed(2)}%) 범위에서 형성되며 평균은 ${formatAmount(results.mean + shift)}입니다. `;
                 insight += `총 참여 업체 수는 ${totalCount}곳(경쟁 ${competitorCount}곳)으로 설정했습니다. `;
 
-                if (results.distribution) {
+                if (competitorCount <= 0) {
+                    insight += '단독 참여 상황으로 경쟁 업체 분포는 낙찰 확률 계산에 반영되지 않습니다. ';
+                } else if (results.distribution) {
                     const dist = results.distribution;
                     insight += `경쟁 업체 제시가격 분포는 ${dist.type}(${dist.description})으로 가정했으며 평균 투찰률은 ${dist.rateMu.toFixed(2)}%, 표준편차는 ${dist.rateSigma.toFixed(2)}% 수준입니다. `;
                     if (dist.isMixture) {
@@ -2147,7 +2161,11 @@
                 }
 
                 insight += `${bestBid.rate.toFixed(2)}% (${formatAmount(bestBid.price + shift)}) 투찰 시 낙찰 확률은 ${(bestBid.probability * 100).toFixed(1)}%입니다. `;
-                insight += `임계값이 ${formatAmount(bestBid.thresholdUpper + shift)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 경쟁 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다.`;
+                if (competitorCount > 0) {
+                    insight += `임계값이 ${formatAmount(bestBid.thresholdUpper + shift)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 경쟁 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다.`;
+                } else {
+                    insight += `임계값이 ${formatAmount(bestBid.thresholdUpper + shift)} 이하로 형성될 확률은 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 경쟁사가 없어 임계값 통과 여부만이 낙찰을 좌우합니다.`;
+                }
 
                 if (results.leftoverProbability > 1e-6) {
                     const capRaw = Math.min(results.high, results.maxPrice);
