@@ -366,11 +366,13 @@
             <div class="field">
                 <label for="openPrice">예비가격 기초금액 (원)</label>
                 <input type="number" id="openPrice" name="openPrice" min="100000000" max="1000000000000" step="1" value="10000000000">
+                <small class="field-hint" id="openPriceCompactHint" aria-live="polite"></small>
             </div>
             <div class="field">
                 <label for="aValue">a값 (원)</label>
                 <input type="number" id="aValue" name="aValue" min="0" step="1" value="0">
                 <small class="field-hint">예비가격 기초금액에서 차감할 상수입니다. 원 단위로 입력하며 계산은 차감된 금액으로 수행 후 결과에는 a값이 다시 더해집니다.</small>
+                <small class="field-hint" id="aValueCompactHint" aria-live="polite"></small>
             </div>
             <div class="field">
                 <label for="companyCount">참여 업체 수</label>
@@ -515,6 +517,8 @@
             const resetButton = document.getElementById('resetButton');
             const openPriceInput = document.getElementById('openPrice');
             const aValueInput = document.getElementById('aValue');
+            const openPriceCompactHint = document.getElementById('openPriceCompactHint');
+            const aValueCompactHint = document.getElementById('aValueCompactHint');
             const companyCountInput = document.getElementById('companyCount');
             const distributionTypeSelect = document.getElementById('distributionType');
             const baseRateInput = document.getElementById('baseRate');
@@ -654,6 +658,20 @@
                 input.addEventListener('change', clearPickSizeValidity);
             });
 
+            if (openPriceInput && openPriceCompactHint) {
+                const updateHint = () => updateCurrencyHint(openPriceInput, openPriceCompactHint);
+                openPriceInput.addEventListener('input', updateHint);
+                openPriceInput.addEventListener('change', updateHint);
+                updateHint();
+            }
+
+            if (aValueInput && aValueCompactHint) {
+                const updateHint = () => updateCurrencyHint(aValueInput, aValueCompactHint);
+                aValueInput.addEventListener('input', updateHint);
+                aValueInput.addEventListener('change', updateHint);
+                updateHint();
+            }
+
             window.addEventListener('resize', () => {
                 if (!winRateChartCanvas || !latestChartState) {
                     return;
@@ -673,6 +691,8 @@
 
             resetButton.addEventListener('click', () => {
                 form.reset();
+                updateCurrencyHint(openPriceInput, openPriceCompactHint);
+                updateCurrencyHint(aValueInput, aValueCompactHint);
                 runAnalysis();
             });
 
@@ -2185,6 +2205,75 @@
                 }
                 const shift = Number.parseFloat(params.aValue);
                 return Number.isFinite(shift) ? shift : 0;
+            }
+
+            function updateCurrencyHint(input, hintElement) {
+                if (!input || !hintElement) {
+                    return;
+                }
+
+                const raw = String(input.value ?? '').trim();
+                if (!raw) {
+                    hintElement.textContent = '';
+                    return;
+                }
+
+                const compact = toKoreanCurrencyCompact(raw);
+                hintElement.textContent = compact ? `간단 표기: ${compact}` : '';
+            }
+
+            function toKoreanCurrencyCompact(input) {
+                let s = String(input).trim();
+                if (s === '') {
+                    return s;
+                }
+
+                const neg = s.startsWith('-');
+                if (neg) {
+                    s = s.slice(1);
+                }
+
+                s = s.replace(/[^\d]/g, '');
+                if (s === '') {
+                    return neg ? '-' : '';
+                }
+
+                s = s.replace(/^0+/, '') || '0';
+
+                if (Number.isSafeInteger(Number(s)) && Number(s) < 1000) {
+                    return (neg ? '-' : '') + s;
+                }
+                if (s.length < 4) {
+                    return (neg ? '-' : '') + s;
+                }
+
+                const groups = [];
+                for (let i = s.length; i > 0; i -= 4) {
+                    const start = Math.max(0, i - 4);
+                    groups.push(s.slice(start, i));
+                }
+                groups.reverse();
+
+                const units = ['조', '억', '만'];
+
+                const parts = [];
+                const n = groups.length;
+                for (let i = 0; i < n - 1; i++) {
+                    const g = groups[i];
+                    if (!/^0+$/.test(g)) {
+                        const unitIndexFromRight = (n - 2) - i;
+                        const unit = units[unitIndexFromRight] || '';
+                        parts.push(String(Number(g)) + unit);
+                    }
+                }
+
+                const last = groups[n - 1];
+                if (!/^0+$/.test(last)) {
+                    parts.push(String(Number(last)) + '원');
+                }
+
+                const result = (neg ? '-' : '') + parts.join(' ').trim();
+                return result || (neg ? '-' : '') + '0';
             }
 
             function formatAmount(amount) {
