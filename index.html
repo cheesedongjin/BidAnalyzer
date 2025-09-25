@@ -1894,10 +1894,16 @@
                 const trimmedYValues = yValues.slice(0, finalIndex + 1);
 
                 const minX = Math.min(...trimmedXValues);
+                let maxX = Math.max(...trimmedXValues);
+
+                // openPriceReference가 trimmed 범위보다 작으면 포함
                 const openPriceReference = Number.isFinite(params?.nominalOpenPrice)
                     ? params.nominalOpenPrice
                     : params.openPrice + shift;
-                const maxX = Math.max(...trimmedXValues, openPriceReference);
+                if (openPriceReference <= maxX) {
+                    maxX = Math.max(maxX, openPriceReference);
+                }
+
                 const maxProbability = Math.max(...trimmedYValues);
                 const xRange = Math.max(maxX - minX, 1e-9);
                 const yMax = computeNiceProbabilityCeiling(maxProbability);
