@@ -1928,13 +1928,16 @@
                 }
 
                 const maxProbability = Math.max(...trimmedYValues);
-                const xRange = Math.max(maxX - minX, 1e-9);
-                const yMax = computeNiceProbabilityCeiling(maxProbability);
                 const chartWidth = Math.max(width - padding.left - padding.right, 10);
                 const chartHeight = Math.max(height - padding.top - padding.bottom, 10);
+                const ticks = computeNiceTicks(minX, maxX, 6);
+                const niceMin = ticks.length ? ticks[0] : minX;
+                const niceMax = ticks.length ? ticks[ticks.length - 1] : maxX;
+                const xRange = Math.max(niceMax - niceMin, 1e-9);
+                const yMax = computeNiceProbabilityCeiling(maxProbability);
 
                 const scaleX = value => {
-                    const ratio = (value - minX) / xRange;
+                    const ratio = (value - niceMin) / xRange;
                     return padding.left + clamp01(ratio) * chartWidth;
                 };
                 const scaleY = value => {
@@ -1966,20 +1969,17 @@
                     ctx.fillText(formatProbabilityLabel(value), padding.left - 10, y);
                 }
 
-                const xTickCount = 4;
-                for (let idx = 0; idx <= xTickCount; idx++) {
-                    const ratio = idx / xTickCount;
-                    const value = minX + xRange * ratio;
-                    const x = scaleX(value);
+                ctx.fillStyle = '#475569';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'top';
+                for (const tickValue of ticks) {
+                    const x = scaleX(tickValue);
+                    ctx.fillText(formatCurrency(tickValue), x, height - padding.bottom + 4);
                     ctx.beginPath();
-                    ctx.moveTo(x, padding.top);
-                    ctx.lineTo(x, height - padding.bottom);
-                    ctx.strokeStyle = 'rgba(148, 163, 184, 0.2)';
+                    ctx.moveTo(x, height - padding.bottom);
+                    ctx.lineTo(x, padding.top);
+                    ctx.strokeStyle = '#e2e8f0';
                     ctx.stroke();
-                    ctx.textAlign = 'center';
-                    ctx.textBaseline = 'top';
-                    ctx.fillStyle = '#64748b';
-                    ctx.fillText(formatPriceTick(value), x, height - padding.bottom + 8);
                 }
 
                 ctx.strokeStyle = '#94a3b8';
@@ -2125,6 +2125,10 @@
                     return '';
                 }
                 return compact.replace(/원$/, '');
+            }
+
+            function formatCurrency(value) {
+                return formatPriceTick(value);
             }
 
             function buildWinRateChartSummary(params, results) {
