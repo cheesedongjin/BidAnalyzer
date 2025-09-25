@@ -2074,15 +2074,14 @@
             }
 
             function formatPriceTick(value) {
-                const valueInEok = value / ONE_EOK;
-                if (!Number.isFinite(valueInEok)) {
+                if (!Number.isFinite(value)) {
                     return '';
                 }
-                const digits = valueInEok >= 100 ? 1 : 2;
-                return `${new Intl.NumberFormat('ko-KR', {
-                    minimumFractionDigits: digits,
-                    maximumFractionDigits: digits
-                }).format(valueInEok)}억`;
+                const compact = toKoreanCurrencyCompact(Math.round(value));
+                if (typeof compact !== 'string') {
+                    return '';
+                }
+                return compact.replace(/원$/, '');
             }
 
             function buildWinRateChartSummary(params, results) {
@@ -2292,11 +2291,24 @@
             }
 
             function formatAmount(amount) {
-                const amountInEok = amount / ONE_EOK;
-                if (!Number.isFinite(amountInEok)) {
-                    return '0억 원';
+                if (typeof amount === 'number') {
+                    if (!Number.isFinite(amount)) {
+                        return '0원';
+                    }
+                    return toKoreanCurrencyCompact(Math.round(amount));
                 }
-                return new Intl.NumberFormat('ko-KR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amountInEok) + '억 원';
+
+                if (typeof amount === 'bigint') {
+                    return toKoreanCurrencyCompact(amount.toString());
+                }
+
+                const parsed = Number.parseFloat(String(amount));
+                if (Number.isFinite(parsed)) {
+                    return toKoreanCurrencyCompact(Math.round(parsed));
+                }
+
+                const fallback = toKoreanCurrencyCompact(amount);
+                return typeof fallback === 'string' && fallback ? fallback : '0원';
             }
         })();
     </script>
