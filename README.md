@@ -1,5 +1,3 @@
-# ✅ 개정판 README (교체본)
-
 # 입찰 전략 계산기 (BidAnalyzer)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
