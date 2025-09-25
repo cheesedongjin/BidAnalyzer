@@ -371,8 +371,8 @@
             <div class="field">
                 <label for="aValue">a값 (원)</label>
                 <input type="number" id="aValue" name="aValue" min="0" step="1" value="0">
-                <small class="field-hint">예비가격 기초금액에서 차감할 상수입니다. 원 단위로 입력하며 계산은 차감된 금액으로 수행 후 결과에는 a값이 다시 더해집니다.</small>
                 <small class="field-hint" id="aValueCompactHint" aria-live="polite"></small>
+                <small class="field-hint">예비가격 기초금액에서 차감할 상수입니다. 원 단위로 입력하며 계산은 차감된 금액으로 수행 후 결과에는 a값이 다시 더해집니다.</small>
             </div>
             <div class="field">
                 <label for="companyCount">참여 업체 수</label>
@@ -2219,7 +2219,7 @@
                 }
 
                 const compact = toKoreanCurrencyCompact(raw);
-                hintElement.textContent = compact ? `간단 표기: ${compact}` : '';
+                hintElement.textContent = compact ?? '';
             }
 
             function toKoreanCurrencyCompact(input) {
