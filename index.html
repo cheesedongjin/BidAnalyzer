@@ -959,6 +959,7 @@
 
                     const thresholdUpper = Math.min(price, high);
                     const thresholdShare = averageCdf(thresholdUpper, low, high, basePrice, pickSize, posN, negN);
+                    const thresholdPassProbability = thresholdShare;
 
                     const competitorShareBelow = (otherCompanyCount > 0 && distribution && typeof distribution.cdf === 'function')
                         ? clamp01(distribution.cdf(price))
