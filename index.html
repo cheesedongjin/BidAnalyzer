@@ -1510,9 +1510,6 @@
                 const settings = params.distributionParams ?? {};
                 const defaults = DEFAULTS.distributionParams;
                 const toPrice = rate => openPrice * (rate / 100);
-                const toRate = price => (price / openPrice) * 100;
-                const thresholdRateLow = toRate(low);
-                const thresholdRateHigh = toRate(high);
 
                 const pickFinite = (...values) => {
                     for (const value of values) {
@@ -1567,11 +1564,21 @@
                     };
                 };
 
+                const truncDefaults = defaults.truncnormal ?? {};
+                const defaultTruncSupportRateLow = pickFinite(
+                    truncDefaults.supportRateLow,
+                    RATE_MIN
+                );
+                const defaultTruncSupportRateHigh = pickFinite(
+                    truncDefaults.supportRateHigh,
+                    RATE_MAX
+                );
+
                 const directTruncSupport = normalizeSupportRates(
                     settings.supportRateLow,
                     settings.supportRateHigh,
-                    pickFinite(defaults.truncnormal?.supportRateLow, thresholdRateLow) ?? thresholdRateLow,
-                    pickFinite(defaults.truncnormal?.supportRateHigh, thresholdRateHigh) ?? thresholdRateHigh
+                    defaultTruncSupportRateLow,
+                    defaultTruncSupportRateHigh
                 );
 
                 const createUniformFromRates = () => {
@@ -1724,10 +1731,10 @@
                     }
                     const truncMu = toPrice(truncMeanRate);
                     const mixSupport = normalizeSupportRates(
-                        settings.truncSupportLowRate ?? directTruncSupport.supportRateLow,
-                        settings.truncSupportHighRate ?? directTruncSupport.supportRateHigh,
-                        pickFinite(mixDefaults.truncSupportLowRate, directTruncSupport.supportRateLow) ?? directTruncSupport.supportRateLow,
-                        pickFinite(mixDefaults.truncSupportHighRate, directTruncSupport.supportRateHigh) ?? directTruncSupport.supportRateHigh
+                        settings.truncSupportLowRate ?? settings.supportRateLow ?? directTruncSupport.supportRateLow,
+                        settings.truncSupportHighRate ?? settings.supportRateHigh ?? directTruncSupport.supportRateHigh,
+                        pickFinite(mixDefaults.truncSupportLowRate, defaultTruncSupportRateLow),
+                        pickFinite(mixDefaults.truncSupportHighRate, defaultTruncSupportRateHigh)
                     );
                     const mixSupportSpan = Math.max(
                         mixSupport.supportHighPrice - mixSupport.supportLowPrice,
