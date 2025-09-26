@@ -1339,13 +1339,14 @@
                 const thresholdPassProbability = metrics.thresholdPassProbability;
 
                 if (thresholdPassProbability <= 0) {
+
                     return 0;
                 }
 
                 if (otherCompanyCount <= 0) {
-                    return clamp01(thresholdPassProbability);
+                    return clamp01(thresholdBelowPrice);
                 }
-
+                
                 const singleCompetitorFailProbability = metrics.singleCompetitorFailProbability;
 
                 if (singleCompetitorFailProbability <= 0) {
@@ -1354,7 +1355,7 @@
 
                 const competitorsAllFail = Math.pow(singleCompetitorFailProbability, otherCompanyCount);
 
-                return clamp01(thresholdPassProbability * competitorsAllFail);
+                return clamp01(thresholdBelowPrice * competitorsAllFail);
             }
 
             function averagePdf(value, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize) {
@@ -2140,7 +2141,7 @@
                 }
 
                 const { ctx, width, height } = surface;
-                const padding = { top: 18, right: 16, bottom: 36, left: 68 };
+                const padding = { top: 38, right: 36, bottom: 36, left: 68 };
                 const bids = Array.isArray(results.bids) ? results.bids : [];
                 if (!bids.length) {
                     return;
@@ -2264,6 +2265,44 @@
                 ctx.fillStyle = gradient;
                 ctx.fill();
 
+                const highX = scaleX(results.high + shift);
+                if (highX >= padding.left && highX <= width - padding.right) {
+                    // 수직선 그리기
+                    ctx.beginPath();
+                    ctx.moveTo(highX, padding.top);
+                    ctx.lineTo(highX, height - padding.bottom);
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    
+                    // 왼쪽으로 페이드되는 반투명 영역
+                    const fadeGradient = ctx.createLinearGradient(padding.left, 0, highX, 0);
+                    fadeGradient.addColorStop(0, 'rgba(239, 68, 68, 0)');
+                    fadeGradient.addColorStop(0.7, 'rgba(239, 68, 68, 0.08)');
+                    fadeGradient.addColorStop(1, 'rgba(239, 68, 68, 0.15)');
+                    
+                    ctx.fillStyle = fadeGradient;
+                    ctx.fillRect(padding.left, padding.top, highX - padding.left, chartHeight);
+                    
+                    // 아래쪽 화살표 (∨ 모양)
+                    const arrowY = padding.top - 8;
+                    const arrowSize = 5;
+                    ctx.fillStyle = '#ef4444';
+                    ctx.beginPath();
+                    ctx.moveTo(highX, arrowY + arrowSize);
+                    ctx.lineTo(highX - arrowSize, arrowY);
+                    ctx.lineTo(highX + arrowSize, arrowY);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // "임계값 최대" 레이블
+                    ctx.font = '11px "Pretendard", "Segoe UI", sans-serif';
+                    ctx.fillStyle = '#dc2626';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('임계값 최대', highX, arrowY - 2);
+                }
+                
                 ctx.beginPath();
                 for (let idx = 0; idx < trimmedBids.length; idx++) {
                     const bid = trimmedBids[idx];
