@@ -479,18 +479,18 @@
                 distributionParams: {
                     uniform: { minRate: 78.50, maxRate: 81.50 },
                     triangular: { minRate: 78.50, modeRate: 80.00, maxRate: 81.50 },
-                    truncnormal: { meanRate: 80.00, stdRate: 0.45 },
+                    truncnormal: { meanRate: 80.00, stdRate: 0.25 },
                     mixture: {
                         uniformWeight: 5.0,          // 극단적 랜덤 전략 거의 없음
-                        triangularWeight: 60.0,      // 대다수는 중앙값 쏠림
-                        truncnormalWeight: 35.0,     // 일부는 평균±편차에 분포
+                        triangularWeight: 80.0,      // 대다수는 중앙값 쏠림
+                        truncnormalWeight: 15.0,     // 일부는 평균±편차에 분포
                         uniformMinRate: 77.50,
                         uniformMaxRate: 82.50,
                         triMinRate: 78.50,
                         triModeRate: 87.9945,
                         triMaxRate: 81.20,
                         truncMeanRate: 80.00,
-                        truncStdRate: 0.35           // 표준편차를 줄여서 더 중앙 집중
+                        truncStdRate: 0.25           // 표준편차를 줄여서 더 중앙 집중
                     }
                 },
                 calculation: {
@@ -503,8 +503,18 @@
             };
 
             // DEFAULTS 객체 생성 후 계산된 값으로 업데이트
-            DEFAULTS.distributionParams.triangular.modeRate = DEFAULTS.calculation.baseRate * 100 + (DEFAULTS.calculation.baseRate * 100 * 0.15);
-            DEFAULTS.distributionParams.mixture.triModeRate = DEFAULTS.calculation.baseRate * 100 + (DEFAULTS.calculation.baseRate * 100 * 0.15);
+            DEFAULTS.distributionParams.triangular.modeRate = DEFAULTS.calculation.baseRate * 100 * 1.03;
+            DEFAULTS.distributionParams.triangular.maxRate = Math.max(
+                DEFAULTS.distributionParams.triangular.maxRate,
+                DEFAULTS.calculation.baseRate * 100 * (1 + DEFAULTS.calculation.rangeRatio) + 
+                (DEFAULTS.calculation.baseRate * 100 * (1 + DEFAULTS.calculation.rangeRatio) * 0.01)
+            );
+
+            DEFAULTS.distributionParams.mixture.triModeRate = DEFAULTS.calculation.baseRate * 100 * 1.03;
+            DEFAULTS.distributionParams.mixture.triMaxRate = Math.max(
+                DEFAULTS.distributionParams.mixture.triMaxRate,
+                DEFAULTS.calculation.baseRate * 100 * (1 + DEFAULTS.calculation.rangeRatio) * 1.01
+            );
 
             const MIN_OPEN_PRICE = 1;
             const MAX_OPEN_PRICE = 10000000000000000;
