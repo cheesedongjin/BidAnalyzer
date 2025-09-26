@@ -1301,6 +1301,28 @@
                     ? clamp01(1 - distribution.cdf(price))
                     : 0;
 
+                if (hasDistribution) {
+                    const competitorAtOrBelowPrice = clamp01(distribution.cdf(price));
+                    competitorShareBelow = Math.min(
+                        competitorShareBelow,
+                        competitorAtOrBelowPrice
+                    );
+                    const competitorSuccessProbability = Math.max(
+                        0,
+                        competitorAtOrBelowPrice - competitorShareBelow
+                    );
+                    const singleCompetitorFailProbability = clamp01(
+                        1 - competitorSuccessProbability
+                    );
+
+                    return {
+                        thresholdPassProbability,
+                        competitorShareBelow,
+                        bidsAboveUsProbability,
+                        singleCompetitorFailProbability
+                    };
+                }
+
                 const singleCompetitorFailProbability = clamp01(
                     competitorShareBelow + bidsAboveUsProbability
                 );
