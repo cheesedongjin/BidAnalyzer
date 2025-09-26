@@ -505,6 +505,7 @@
             const MIN_OPEN_PRICE = 1;
             const MAX_OPEN_PRICE = 10000000000000000;
             const CANDIDATE_GRID_POINTS = 121;
+            const THRESHOLD_INTEGRATION_STEPS = 512;
             const RATE_MIN = 50;
             const RATE_MAX = 120;
             const RATE_STD_MIN = 0.01;
@@ -1110,6 +1111,17 @@
                     const price = low + (gridHigh - low) * ratio;
                     const rate = (price / params.openPrice) * 100;
 
+                    const metrics = computeThresholdRivalMetrics(
+                        price,
+                        low,
+                        high,
+                        basePrice,
+                        distribution,
+                        pickSize,
+                        posN,
+                        negN
+                    );
+
                     const probability = computeWinProbability(
                         price,
                         low,
@@ -1119,16 +1131,17 @@
                         distribution,
                         pickSize,
                         posN,
-                        negN
+                        negN,
+                        metrics
                     );
 
                     const thresholdUpper = Math.min(price, high);
-                    const thresholdShare = averageCdf(thresholdUpper, low, high, basePrice, pickSize, posN, negN);
+                    const thresholdShare = metrics.thresholdPassProbability;
                     const thresholdPassProbability = thresholdShare;
 
-                    const competitorShareBelow = (otherCompanyCount > 0 && distribution && typeof distribution.cdf === 'function')
-                        ? clamp01(distribution.cdf(price))
-                        : thresholdPassProbability;
+                    const competitorShareBelow = metrics.competitorShareBelow;
+                    const bidsAboveUsProbability = metrics.bidsAboveUsProbability;
+                    const singleCompetitorFailProbability = metrics.singleCompetitorFailProbability;
 
                     const entry = {
                         rate,
@@ -1137,7 +1150,9 @@
                         thresholdUpper,
                         thresholdShare,
                         competitorShareBelow,
-                        thresholdPassProbability
+                        thresholdPassProbability,
+                        bidsAboveUsProbability,
+                        singleCompetitorFailProbability
                     };
 
                     results.push(entry);
@@ -1184,6 +1199,120 @@
                 return result;
             }
 
+            function computeThresholdRivalMetrics(
+                price,
+                low,
+                high,
+                basePrice,
+                distribution,
+                pickSize,
+                positiveSampleSize,
+                negativeSampleSize
+            ) {
+                if (price < low) {
+                    return {
+                        thresholdPassProbability: 0,
+                        competitorShareBelow: 0,
+                        bidsAboveUsProbability: 0,
+                        singleCompetitorFailProbability: 0
+                    };
+                }
+
+                const upper = Math.min(price, high);
+                const thresholdPassProbability = clamp01(
+                    averageCdf(
+                        upper,
+                        low,
+                        high,
+                        basePrice,
+                        pickSize,
+                        positiveSampleSize,
+                        negativeSampleSize
+                    )
+                );
+
+                const hasDistribution = Boolean(distribution && typeof distribution.cdf === 'function');
+                let competitorShareBelow = 0;
+
+                if (thresholdPassProbability > 0 && hasDistribution) {
+                    if (upper > low) {
+                        const grid = createIntegrationGrid(low, upper, THRESHOLD_INTEGRATION_STEPS);
+                        let integral = 0;
+
+                        for (let i = 0; i < grid.length - 1; i++) {
+                            const t0 = grid[i];
+                            const t1 = grid[i + 1];
+                            const dt = t1 - t0;
+
+                            if (!(dt > 0)) {
+                                continue;
+                            }
+
+                            const pdf0 = averagePdf(
+                                t0,
+                                low,
+                                high,
+                                basePrice,
+                                pickSize,
+                                positiveSampleSize,
+                                negativeSampleSize
+                            );
+                            const pdf1 = averagePdf(
+                                t1,
+                                low,
+                                high,
+                                basePrice,
+                                pickSize,
+                                positiveSampleSize,
+                                negativeSampleSize
+                            );
+
+                            if (!Number.isFinite(pdf0) || !Number.isFinite(pdf1)) {
+                                continue;
+                            }
+
+                            const cdf0 = clamp01(distribution.cdf(t0));
+                            const cdf1 = clamp01(distribution.cdf(t1));
+
+                            const weighted0 = pdf0 * cdf0;
+                            const weighted1 = pdf1 * cdf1;
+
+                            if (!Number.isFinite(weighted0) || !Number.isFinite(weighted1)) {
+                                continue;
+                            }
+
+                            integral += ((weighted0 + weighted1) * dt) / 2;
+                        }
+
+                        const boundedIntegral = Math.min(
+                            Math.max(0, integral),
+                            thresholdPassProbability
+                        );
+                        const normalization = Math.max(thresholdPassProbability, 1e-12);
+                        competitorShareBelow = clamp01(boundedIntegral / normalization);
+                    } else {
+                        competitorShareBelow = clamp01(distribution.cdf(upper));
+                    }
+                } else if (thresholdPassProbability > 0) {
+                    competitorShareBelow = thresholdPassProbability;
+                }
+
+                const bidsAboveUsProbability = hasDistribution
+                    ? clamp01(1 - distribution.cdf(price))
+                    : 0;
+
+                const singleCompetitorFailProbability = clamp01(
+                    competitorShareBelow + bidsAboveUsProbability
+                );
+
+                return {
+                    thresholdPassProbability,
+                    competitorShareBelow,
+                    bidsAboveUsProbability,
+                    singleCompetitorFailProbability
+                };
+            }
+
             function computeWinProbability(
                 price,
                 low,
@@ -1193,22 +1322,21 @@
                 distribution,
                 pickSize,
                 positiveSampleSize,
-                negativeSampleSize
+                negativeSampleSize,
+                precomputedMetrics = null
             ) {
-                if (price < low) {
-                    return 0;
-                }
-
-                const upper = Math.min(price, high);
-                const thresholdPassProbability = averageCdf(
-                    upper,
+                const metrics = precomputedMetrics ?? computeThresholdRivalMetrics(
+                    price,
                     low,
                     high,
                     basePrice,
+                    distribution,
                     pickSize,
                     positiveSampleSize,
                     negativeSampleSize
                 );
+
+                const thresholdPassProbability = metrics.thresholdPassProbability;
 
                 if (thresholdPassProbability <= 0) {
                     return 0;
@@ -1218,12 +1346,7 @@
                     return clamp01(thresholdPassProbability);
                 }
 
-                const competitorBelowLow = clamp01(distribution.cdf(low));
-                const competitorAtPrice = clamp01(distribution.cdf(Math.max(price, low)));
-
-                const singleCompetitorFailProbability = clamp01(
-                    competitorBelowLow + (1 - competitorAtPrice)
-                );
+                const singleCompetitorFailProbability = metrics.singleCompetitorFailProbability;
 
                 if (singleCompetitorFailProbability <= 0) {
                     return 0;
@@ -1931,7 +2054,9 @@
                         `임계값 커버 ${(bid.thresholdShare * 100).toFixed(1)}%`
                     ];
                     if (results.otherCompanyCount > 0) {
-                        tooltipParts.push(`타 업체 ≤ ${bid.rate.toFixed(2)}% 비중 ${(bid.competitorShareBelow * 100).toFixed(1)}%`);
+                        tooltipParts.push(`경쟁사 임계값 미달 기대비중 ${(bid.competitorShareBelow * 100).toFixed(1)}%`);
+                        tooltipParts.push(`경쟁사 우리보다 높은 금액 확률 ${(bid.bidsAboveUsProbability * 100).toFixed(1)}%`);
+                        tooltipParts.push(`경쟁사 1곳 실패 확률 ${(bid.singleCompetitorFailProbability * 100).toFixed(1)}%`);
                     } else {
                         tooltipParts.push(`단독 참여: 임계값 통과 ${(bid.thresholdShare * 100).toFixed(1)}%`);
                     }
@@ -2358,7 +2483,7 @@
 
                 insight += `${bestBid.rate.toFixed(2)}% (${formatAmount(bestBid.price + shift)}) 투찰 시 낙찰 확률은 ${(bestBid.probability * 100).toFixed(1)}%입니다. `;
                 if (competitorCount > 0) {
-                    insight += `임계값이 ${formatAmount(bestBid.thresholdUpper + shift)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 경쟁 업체 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%로 추정됩니다.`;
+                    insight += `임계값이 ${formatAmount(bestBid.thresholdUpper + shift)} 이하로 형성되는 경우는 전체의 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 이 구간에서 경쟁 업체가 임계값 미달로 탈락할 기대 누적 비중은 ${(bestBid.competitorShareBelow * 100).toFixed(1)}%이고, 우리보다 높은 금액을 제시할 확률은 ${(bestBid.bidsAboveUsProbability * 100).toFixed(1)}%입니다.`;
                 } else {
                     insight += `임계값이 ${formatAmount(bestBid.thresholdUpper + shift)} 이하로 형성될 확률은 ${(bestBid.thresholdShare * 100).toFixed(1)}%이며, 경쟁사가 없어 임계값 통과 여부만이 낙찰을 좌우합니다.`;
                 }
