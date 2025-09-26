@@ -1199,9 +1199,10 @@
                     return 0;
                 }
 
-                const upper = Math.min(price, high);
-                const thresholdPassProbability = averageCdf(
-                    upper,
+                // 우리가 1차 통과하려면: 임계값 A < price
+                // 즉, P(A < price)를 계산해야 함
+                const thresholdBelowPrice = averageCdf(
+                    price,  // price까지의 CDF = P(A ≤ price)
                     low,
                     high,
                     basePrice,
@@ -1210,28 +1211,30 @@
                     negativeSampleSize
                 );
 
-                if (thresholdPassProbability <= 0) {
+                if (thresholdBelowPrice <= 0) {
                     return 0;
                 }
 
                 if (otherCompanyCount <= 0) {
-                    return clamp01(thresholdPassProbability);
+                    return clamp01(thresholdBelowPrice);
                 }
 
+                // 경쟁사 1곳이 우리를 이기지 못할 확률
+                // = 경쟁사가 임계값 미달로 탈락 OR 우리보다 높은 가격 제시
                 const competitorBelowLow = clamp01(distribution.cdf(low));
-                const competitorAtPrice = clamp01(distribution.cdf(Math.max(price, low)));
+                const competitorAbovePrice = clamp01(1 - distribution.cdf(price));
 
                 const singleCompetitorFailProbability = clamp01(
-                    competitorBelowLow + (1 - competitorAtPrice)
+                    competitorBelowLow + competitorAbovePrice
                 );
-
+                
                 if (singleCompetitorFailProbability <= 0) {
                     return 0;
                 }
 
                 const competitorsAllFail = Math.pow(singleCompetitorFailProbability, otherCompanyCount);
 
-                return clamp01(thresholdPassProbability * competitorsAllFail);
+                return clamp01(thresholdBelowPrice * competitorsAllFail);
             }
 
             function averagePdf(value, low, high, basePrice, pickSize, positiveSampleSize, negativeSampleSize) {
@@ -2015,7 +2018,7 @@
                 }
 
                 const { ctx, width, height } = surface;
-                const padding = { top: 18, right: 16, bottom: 36, left: 68 };
+                const padding = { top: 38, right: 36, bottom: 36, left: 68 };
                 const bids = Array.isArray(results.bids) ? results.bids : [];
                 if (!bids.length) {
                     return;
@@ -2139,6 +2142,44 @@
                 ctx.fillStyle = gradient;
                 ctx.fill();
 
+                const highX = scaleX(results.high + shift);
+                if (highX >= padding.left && highX <= width - padding.right) {
+                    // 수직선 그리기
+                    ctx.beginPath();
+                    ctx.moveTo(highX, padding.top);
+                    ctx.lineTo(highX, height - padding.bottom);
+                    ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)';
+                    ctx.lineWidth = 1.5;
+                    ctx.stroke();
+                    
+                    // 왼쪽으로 페이드되는 반투명 영역
+                    const fadeGradient = ctx.createLinearGradient(padding.left, 0, highX, 0);
+                    fadeGradient.addColorStop(0, 'rgba(239, 68, 68, 0)');
+                    fadeGradient.addColorStop(0.7, 'rgba(239, 68, 68, 0.08)');
+                    fadeGradient.addColorStop(1, 'rgba(239, 68, 68, 0.15)');
+                    
+                    ctx.fillStyle = fadeGradient;
+                    ctx.fillRect(padding.left, padding.top, highX - padding.left, chartHeight);
+                    
+                    // 아래쪽 화살표 (∨ 모양)
+                    const arrowY = padding.top - 8;
+                    const arrowSize = 5;
+                    ctx.fillStyle = '#ef4444';
+                    ctx.beginPath();
+                    ctx.moveTo(highX, arrowY + arrowSize);
+                    ctx.lineTo(highX - arrowSize, arrowY);
+                    ctx.lineTo(highX + arrowSize, arrowY);
+                    ctx.closePath();
+                    ctx.fill();
+                    
+                    // "임계값 최대" 레이블
+                    ctx.font = '11px "Pretendard", "Segoe UI", sans-serif';
+                    ctx.fillStyle = '#dc2626';
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('임계값 최대', highX, arrowY - 2);
+                }
+                
                 ctx.beginPath();
                 for (let idx = 0; idx < trimmedBids.length; idx++) {
                     const bid = trimmedBids[idx];
