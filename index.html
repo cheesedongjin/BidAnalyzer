@@ -1337,16 +1337,16 @@
                 );
 
                 const thresholdPassProbability = metrics.thresholdPassProbability;
+                const thresholdBelowPrice = metrics.thresholdPassProbability;
 
                 if (thresholdPassProbability <= 0) {
-
                     return 0;
                 }
 
                 if (otherCompanyCount <= 0) {
                     return clamp01(thresholdBelowPrice);
                 }
-                
+
                 const singleCompetitorFailProbability = metrics.singleCompetitorFailProbability;
 
                 if (singleCompetitorFailProbability <= 0) {
