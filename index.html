@@ -1511,6 +1511,68 @@
                 const defaults = DEFAULTS.distributionParams;
                 const toPrice = rate => openPrice * (rate / 100);
                 const toRate = price => (price / openPrice) * 100;
+                const thresholdRateLow = toRate(low);
+                const thresholdRateHigh = toRate(high);
+
+                const pickFinite = (...values) => {
+                    for (const value of values) {
+                        if (Number.isFinite(value)) {
+                            return value;
+                        }
+                    }
+                    return undefined;
+                };
+
+                const normalizeSupportRates = (rawLowRate, rawHighRate, fallbackLowRate, fallbackHighRate) => {
+                    const MIN_RATE_SPAN = 0.1;
+                    let supportRateLow = sanitizeNumber(rawLowRate, fallbackLowRate, RATE_MIN, RATE_MAX);
+                    let supportRateHigh = sanitizeNumber(rawHighRate, fallbackHighRate, RATE_MIN, RATE_MAX);
+
+                    if (!Number.isFinite(supportRateLow)) supportRateLow = fallbackLowRate;
+                    if (!Number.isFinite(supportRateHigh)) supportRateHigh = fallbackHighRate;
+
+                    if (!Number.isFinite(supportRateLow)) supportRateLow = RATE_MIN;
+                    if (!Number.isFinite(supportRateHigh)) supportRateHigh = RATE_MAX;
+
+                    if (supportRateLow > supportRateHigh) {
+                        [supportRateLow, supportRateHigh] = [supportRateHigh, supportRateLow];
+                    }
+
+                    if (supportRateHigh - supportRateLow < MIN_RATE_SPAN) {
+                        const mid = Number.isFinite((supportRateLow + supportRateHigh) / 2)
+                            ? (supportRateLow + supportRateHigh) / 2
+                            : supportRateLow || supportRateHigh || fallbackLowRate || fallbackHighRate || RATE_MIN;
+                        supportRateLow = clamp(mid - MIN_RATE_SPAN / 2, RATE_MIN, RATE_MAX);
+                        supportRateHigh = clamp(mid + MIN_RATE_SPAN / 2, RATE_MIN, RATE_MAX);
+
+                        if (supportRateHigh - supportRateLow < MIN_RATE_SPAN) {
+                            if (supportRateHigh >= RATE_MAX - 1e-6) {
+                                supportRateHigh = RATE_MAX;
+                                supportRateLow = Math.max(RATE_MIN, RATE_MAX - MIN_RATE_SPAN);
+                            } else {
+                                supportRateLow = Math.max(RATE_MIN, supportRateHigh - MIN_RATE_SPAN);
+                                supportRateHigh = Math.min(RATE_MAX, supportRateLow + MIN_RATE_SPAN);
+                            }
+                        }
+                    }
+
+                    const supportLowPrice = toPrice(supportRateLow);
+                    const supportHighPrice = toPrice(supportRateHigh);
+
+                    return {
+                        supportRateLow,
+                        supportRateHigh,
+                        supportLowPrice,
+                        supportHighPrice
+                    };
+                };
+
+                const directTruncSupport = normalizeSupportRates(
+                    settings.supportRateLow,
+                    settings.supportRateHigh,
+                    pickFinite(defaults.truncnormal?.supportRateLow, thresholdRateLow) ?? thresholdRateLow,
+                    pickFinite(defaults.truncnormal?.supportRateHigh, thresholdRateHigh) ?? thresholdRateHigh
+                );
 
                 const createUniformFromRates = () => {
                     const uniformDefaults = defaults.uniform;
@@ -1565,15 +1627,26 @@
                     if (!Number.isFinite(meanRate)) meanRate = truncDefaults.meanRate;
                     if (!Number.isFinite(stdRate) || stdRate <= 0) stdRate = truncDefaults.stdRate;
                     const mu = toPrice(meanRate);
-                    const sigma = Math.max(openPrice * (stdRate / 100), (high - low) / 200, Math.abs(mu) * 1e-6);
-                    const distribution = buildTruncatedNormalDistribution(low, high, mu, sigma);
+                    const supportSpan = Math.max(
+                        directTruncSupport.supportHighPrice - directTruncSupport.supportLowPrice,
+                        Math.abs(mu) * 1e-6,
+                        openPrice * 1e-6,
+                        1e-6
+                    );
+                    const sigma = Math.max(openPrice * (stdRate / 100), supportSpan / 200, Math.abs(mu) * 1e-6);
+                    const distribution = buildTruncatedNormalDistribution(
+                        directTruncSupport.supportLowPrice,
+                        directTruncSupport.supportHighPrice,
+                        mu,
+                        sigma
+                    );
                     const description = `평균 ${meanRate.toFixed(2)}%, 표준편차 ${stdRate.toFixed(2)}%`;
                     return {
                         ...enrichDistribution(distribution, '절단 정규 분포', openPrice, description),
                         rateMean: meanRate,
                         rateStd: stdRate,
-                        supportRateLow: toRate(low),
-                        supportRateHigh: toRate(high)
+                        supportRateLow: directTruncSupport.supportRateLow,
+                        supportRateHigh: directTruncSupport.supportRateHigh
                     };
                 };
 
@@ -1650,8 +1723,25 @@
                         truncStdRate = Number.isFinite(fallbackStd) ? fallbackStd : (mixDefaults.truncStdRate ?? 1);
                     }
                     const truncMu = toPrice(truncMeanRate);
-                    const truncSigma = Math.max(openPrice * (truncStdRate / 100), (high - low) / 200, Math.abs(truncMu) * 1e-6);
-                    const truncDistribution = buildTruncatedNormalDistribution(low, high, truncMu, truncSigma);
+                    const mixSupport = normalizeSupportRates(
+                        settings.truncSupportLowRate ?? directTruncSupport.supportRateLow,
+                        settings.truncSupportHighRate ?? directTruncSupport.supportRateHigh,
+                        pickFinite(mixDefaults.truncSupportLowRate, directTruncSupport.supportRateLow) ?? directTruncSupport.supportRateLow,
+                        pickFinite(mixDefaults.truncSupportHighRate, directTruncSupport.supportRateHigh) ?? directTruncSupport.supportRateHigh
+                    );
+                    const mixSupportSpan = Math.max(
+                        mixSupport.supportHighPrice - mixSupport.supportLowPrice,
+                        Math.abs(truncMu) * 1e-6,
+                        openPrice * 1e-6,
+                        1e-6
+                    );
+                    const truncSigma = Math.max(openPrice * (truncStdRate / 100), mixSupportSpan / 200, Math.abs(truncMu) * 1e-6);
+                    const truncDistribution = buildTruncatedNormalDistribution(
+                        mixSupport.supportLowPrice,
+                        mixSupport.supportHighPrice,
+                        truncMu,
+                        truncSigma
+                    );
                     const truncSummary = `평균 ${truncMeanRate.toFixed(2)}%, 표준편차 ${truncStdRate.toFixed(2)}%`;
 
                     const components = [];
@@ -1717,6 +1807,10 @@
                     enriched.componentDetailSummary = detailSummary;
                     enriched.weightSummary = weightSummary;
                     enriched.isMixture = true;
+                    if (truncWeightNormalized > 0) {
+                        enriched.supportRateLow = mixSupport.supportRateLow;
+                        enriched.supportRateHigh = mixSupport.supportRateHigh;
+                    }
                     return enriched;
                 };
 
