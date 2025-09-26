@@ -487,7 +487,7 @@
                         uniformMinRate: 77.50,
                         uniformMaxRate: 82.50,
                         triMinRate: 78.50,
-                        triModeRate: 80.00,
+                        triModeRate: 87.9945,
                         triMaxRate: 81.20,
                         truncMeanRate: 80.00,
                         truncStdRate: 0.35           // 표준편차를 줄여서 더 중앙 집중
@@ -501,6 +501,10 @@
                     pickSize: 4
                 }
             };
+
+            // DEFAULTS 객체 생성 후 계산된 값으로 업데이트
+            DEFAULTS.distributionParams.triangular.modeRate = DEFAULTS.calculation.baseRate * 100 + (DEFAULTS.calculation.baseRate * 100 * 0.15);
+            DEFAULTS.distributionParams.mixture.triModeRate = DEFAULTS.calculation.baseRate * 100 + (DEFAULTS.calculation.baseRate * 100 * 0.15);
 
             const MIN_OPEN_PRICE = 1;
             const MAX_OPEN_PRICE = 10000000000000000;
@@ -594,7 +598,7 @@
                     const cssHeight = Number.parseFloat(winRateChartCanvas.dataset?.prevHeight) || rect.height || (winRateChartCanvas.height / dpr);
                     const mouseX = (event.clientX - rect.left) * (cssWidth / rect.width);
 
-                    const padding = { top: 18, right: 16, bottom: 36, left: 68 };
+                    const padding = { top: 38, right: 36, bottom: 36, left: 68 };
                     const chartWidth = Math.max(cssWidth - padding.left - padding.right, 10);
                     const chartHeight = Math.max(cssHeight - padding.top - padding.bottom, 10);
                     const shift = getAmountShift(params);
@@ -2445,11 +2449,33 @@
                     const bestBid = trimmedBids[results.bestIndex];
                     const x = scaleX(bestBid.price + shift);
                     const y = scaleY(bestBid.probability);
+                    
+                    // 최고점에서 X축까지 수직선
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(x, height - padding.bottom);
+                    ctx.strokeStyle = 'rgba(29, 78, 216, 0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.stroke();
+                    
+                    // 최고점에서 Y축까지 수평선
+                    ctx.beginPath();
+                    ctx.moveTo(x, y);
+                    ctx.lineTo(padding.left, y);
+                    ctx.strokeStyle = 'rgba(29, 78, 216, 0.5)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 4]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    
+                    // 최고점 원형 마커
                     ctx.fillStyle = '#1d4ed8';
                     ctx.beginPath();
                     ctx.arc(x, y, 4, 0, Math.PI * 2);
                     ctx.fill();
 
+                    // 라벨
                     ctx.font = '12px "Pretendard", "Segoe UI", sans-serif';
                     ctx.fillStyle = '#1d4ed8';
                     ctx.textBaseline = 'bottom';
@@ -2457,7 +2483,7 @@
                     ctx.textAlign = alignRight ? 'right' : 'left';
                     const labelX = alignRight ? x - 8 : x + 8;
                     const labelY = Math.max(padding.top + 12, y - 6);
-                    ctx.fillText(`${bestBid.rate.toFixed(2)}%`, labelX, labelY);
+                    ctx.fillText(`${formatAmount(bestBid.price + shift)}`, labelX, labelY);
                 }
             }
 
