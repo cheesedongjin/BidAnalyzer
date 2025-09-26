@@ -2277,6 +2277,7 @@
                 const shift = getAmountShift(params);
                 const xValues = bids.map(bid => bid.price + shift);
                 const yValues = bids.map(bid => bid.probability);
+                const rawPrices = bids.map(bid => bid.price);
 
                 let cutoffIndex = bids.length - 1;
                 for (let i = bids.length - 1; i >= 1; i--) {
@@ -2290,6 +2291,50 @@
                 const trimmedBids = bids.slice(0, finalIndex + 1);
                 const trimmedXValues = xValues.slice(0, finalIndex + 1);
                 const trimmedYValues = yValues.slice(0, finalIndex + 1);
+                const trimmedRawPrices = rawPrices.slice(0, finalIndex + 1);
+
+                let competitorSeries = [];
+                let competitorPeak = 0;
+                if (results.distribution && typeof results.distribution.cdf === 'function') {
+                    const distributionCdf = results.distribution.cdf.bind(results.distribution);
+                    const fallbackSpan = (() => {
+                        const baseFallback = Math.max(results.high - results.low, Math.abs(trimmedRawPrices[0] ?? 0) * 0.02, 1);
+                        if (trimmedRawPrices.length <= 1) {
+                            return baseFallback;
+                        }
+                        let total = 0;
+                        for (let i = 1; i < trimmedRawPrices.length; i++) {
+                            total += Math.max(trimmedRawPrices[i] - trimmedRawPrices[i - 1], 0);
+                        }
+                        const average = total / Math.max(trimmedRawPrices.length - 1, 1);
+                        if (!(average > 0)) {
+                            return baseFallback / Math.max(trimmedRawPrices.length, 1);
+                        }
+                        return average;
+                    })();
+
+                    competitorSeries = trimmedRawPrices.map((price, idx) => {
+                        const prevPrice = idx > 0
+                            ? trimmedRawPrices[idx - 1]
+                            : price - fallbackSpan;
+                        const nextPrice = idx < trimmedRawPrices.length - 1
+                            ? trimmedRawPrices[idx + 1]
+                            : price + fallbackSpan;
+                        const left = price - Math.max((price - prevPrice) / 2, fallbackSpan / 2);
+                        const right = price + Math.max((nextPrice - price) / 2, fallbackSpan / 2);
+                        const cdfLeft = distributionCdf(left);
+                        const cdfRight = distributionCdf(right);
+                        let mass = 0;
+                        if (Number.isFinite(cdfLeft) && Number.isFinite(cdfRight)) {
+                            mass = clamp01(cdfRight - cdfLeft);
+                        }
+                        competitorPeak = Math.max(competitorPeak, mass);
+                        return {
+                            price,
+                            mass
+                        };
+                    });
+                }
 
                 const minX = Math.min(...trimmedXValues);
                 let maxX = Math.max(...trimmedXValues);
@@ -2302,7 +2347,7 @@
                     maxX = Math.max(maxX, openPriceReference);
                 }
 
-                const maxProbability = Math.max(...trimmedYValues);
+                const maxProbability = Math.max(...trimmedYValues, competitorPeak);
                 const chartWidth = Math.max(width - padding.left - padding.right, 10);
                 const chartHeight = Math.max(height - padding.top - padding.bottom, 10);
                 const ticks = computeNiceTicks(minX, maxX, 6);
@@ -2391,6 +2436,24 @@
                 gradient.addColorStop(1, 'rgba(37, 99, 235, 0.05)');
                 ctx.fillStyle = gradient;
                 ctx.fill();
+
+                if (competitorSeries.length) {
+                    ctx.beginPath();
+                    competitorSeries.forEach((point, idx) => {
+                        const x = scaleX(point.price + shift);
+                        const y = scaleY(point.mass);
+                        if (idx === 0) {
+                            ctx.moveTo(x, y);
+                        } else {
+                            ctx.lineTo(x, y);
+                        }
+                    });
+                    ctx.strokeStyle = '#f97316';
+                    ctx.lineWidth = 2;
+                    ctx.setLineDash([6, 3]);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
 
                 const highX = scaleX(results.high + shift);
                 if (highX >= padding.left && highX <= width - padding.right) {
@@ -2484,6 +2547,35 @@
                     const labelX = alignRight ? x - 8 : x + 8;
                     const labelY = Math.max(padding.top + 12, y - 6);
                     ctx.fillText(`${formatAmount(bestBid.price + shift)}`, labelX, labelY);
+                }
+
+                // 범례 표시
+                const legendX = width - padding.right - 120;
+                const legendY = padding.top - 22;
+                ctx.font = '11px "Pretendard", "Segoe UI", sans-serif';
+                ctx.textBaseline = 'middle';
+                ctx.textAlign = 'left';
+
+                ctx.strokeStyle = '#2563eb';
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.moveTo(legendX, legendY);
+                ctx.lineTo(legendX + 16, legendY);
+                ctx.stroke();
+                ctx.fillStyle = '#334155';
+                ctx.fillText('낙찰 확률', legendX + 20, legendY);
+
+                if (competitorSeries.length) {
+                    ctx.strokeStyle = '#f97316';
+                    ctx.lineWidth = 3;
+                    ctx.setLineDash([6, 3]);
+                    ctx.beginPath();
+                    ctx.moveTo(legendX, legendY + 16);
+                    ctx.lineTo(legendX + 16, legendY + 16);
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                    ctx.fillStyle = '#334155';
+                    ctx.fillText('경쟁 분포', legendX + 20, legendY + 16);
                 }
             }
 
